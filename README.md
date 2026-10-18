@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.0 (Beta)
+# ABO Pixel Tracker v0.3.1 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -24,3 +24,17 @@ This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, 
 ## Local verification
 
 `npm run check && npm test` (Node.js 20+). This checks syntax and the deterministic engine/profile tests, **not** live API calls or SillyTavern/Vultr compatibility. See `README_KO.md` for detailed instructions.
+
+
+## Persona sync fix (v0.3.1)
+- Live active persona name, avatar identity, and description are resynced after chat/persona changes.
+- CHAR and USER data continue to be stored per chat, but USER manual overrides and preference selections are kept separately per persona within a chat.
+- Previous persona's pending setup proposals are discarded on identity change. In-flight model analysis for an old persona is rejected.
+- Legacy USER-related events from another persona are not replayed into the newly selected persona; story time and CHAR-only events remain.
+- SillyTavern controls which persona is actually selected. Use its persona locks if you want a different persona automatically selected per character.
+
+### v0.3.1 — Active Persona Refresh
+
+Resolves stale USER data when switching characters/chats or personas by reading the actual current SillyTavern persona avatar identity, name and description. Separates per-persona manual overrides and selected preferences, blocks stale in-flight setup proposals, and filters old USER-related events from another persona during replay. This does not automatically switch SillyTavern's persona; configure SillyTavern persona-to-character locks if needed. Existing chats are migrated on first refresh; back up important chats first.
+
+New **required root module**: `persona-sync.mjs`. Upload all root files when updating via GitHub.

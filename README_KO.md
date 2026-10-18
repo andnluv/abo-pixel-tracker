@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.0 Beta — 설치 및 업데이트
+# ABO Pixel Tracker v0.3.1 Beta — 설치 및 업데이트
 
 SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 않습니다.
 
@@ -13,7 +13,7 @@ SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 
 3. **ZIP 파일 자체를 하나만 업로드하지 마세요.** 반드시 압축 해제한 내용물을 업로드해야 합니다.
 4. 기존 파일을 GitHub 웹 UI에서 동일 이름으로 교체하기 어렵다면 GitHub Desktop의 파일 복사·커밋·Push 방식을 이용하거나, 저장소를 새롭게 재구성하세요. 중복 폴더를 생성하지 마세요.
 5. SillyTavern 확장 관리 → 업데이트를 실행하고 브라우저를 새로고침합니다. 변경된 CSS가 그대로라면 강력 새로고침(Ctrl+Shift+R)을 해 보세요.
-6. 창 상단에 **v0.3.0**이 표시되는지 확인하세요.
+6. 창 상단에 **v0.3.1**이 표시되는지 확인하세요.
 
 > 월드 인포 v3.4를 이미 가져왔다면 다시 가져올 필요가 없습니다. 새로 설치하는 경우에만 `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json`을 별도로 가져오세요.
 
@@ -60,3 +60,21 @@ API 키는 채팅 메타데이터에 기록하지 않습니다. 수동 제안과
 ## 테스트 및 한계
 
 `npm run check && npm test`로 엔진과 프로필 제안 단위 테스트를 실행할 수 있습니다. 현재 분석 엔진은 모델이 추출한 사건에 따라 결과가 달라질 수 있으며, 모든 ABO 설정의 고급 처리를 완성한 정식 버전은 아닙니다.
+
+
+## Persona sync fix (v0.3.1)
+- Live active persona name, avatar identity, and description are resynced after chat/persona changes.
+- CHAR and USER data continue to be stored per chat, but USER manual overrides and preference selections are kept separately per persona within a chat.
+- Previous persona's pending setup proposals are discarded on identity change. In-flight model analysis for an old persona is rejected.
+- Legacy USER-related events from another persona are not replayed into the newly selected persona; story time and CHAR-only events remain.
+- SillyTavern controls which persona is actually selected. Use its persona locks if you want a different persona automatically selected per character.
+
+### 페르소나 전환 문제 수정 (v0.3.1)
+
+- 이전 버전은 채팅을 최초 연 시점의 USER 정보를 저장하고, 캐릭터나 페르소나가 변경되어도 다시 읽지 않았습니다.
+- 이번 버전은 SillyTavern에서 **실제로 선택된 페르소나의 아바타 ID, 이름, 설명**을 다시 확인합니다. 캐릭터/채팅 변경 직후 페르소나 자동 선택이 늦게 완료되는 상황도 확인합니다.
+- 같은 채팅에서 페르소나를 바꾸면 USER별 수동 설정과 취향을 분리해 보관하고, 다시 돌아오면 복원합니다. 이전 USER의 생리·수태 사건은 새 USER에게 적용되지 않습니다.
+- 이미 존재하는 채팅 데이터는 삭제하지 않지만, 이전 버전에 저장된 프로필은 식별 정보가 충분하지 않아 최초 전환 시 자동 분리에 한계가 있을 수 있습니다. 중요한 채팅은 **설정 > 채팅 데이터 내보내기**로 먼저 백업하세요.
+- **주의:** 이 확장이 SillyTavern의 페르소나 자체를 자동 변경하지는 않습니다. 캐릭터별로 다른 페르소나를 자동 선택하려면 SillyTavern 페르소나 관리 화면의 **캐릭터 연결(잠금)**을 설정해야 합니다. 확장은 ST에서 현재 선택된 페르소나를 그대로 반영합니다.
+
+**GitHub 업데이트:** 저장소 최상위에 `index.js`, `persona-sync.mjs`(신규), `manifest.json`, `package.json` 등 ZIP 안의 파일을 업로드해 기존 파일을 교체하세요. 새 모듈이 없으면 확장이 로드되지 않습니다. SillyTavern의 확장 업데이트 후 페이지를 새로고침하고 화면 상단 버전이 `v0.3.1`인지 확인하세요.

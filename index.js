@@ -1,6 +1,8 @@
 import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
 import {PROFILE_SYSTEM,PROFILE_FIELDS,normalizeSetupProposal,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
+import {user_avatar} from '/scripts/personas.js';
+import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
@@ -77,7 +79,8 @@ function meta(create=true){
  const c=S(); if(!c?.chatId||!c.chatMetadata)return null;
  if(!c.chatMetadata[STORAGE]&&create){
   const seed=(globalThis.crypto?.randomUUID?.()||`${Date.now()}:${Math.random()}`).replace(/-/g,'');
-  c.chatMetadata[STORAGE]={schema:VERSION,seed,config:structuredClone(DEFAULT_CONFIG),canon:readCanon(),ledger:{},overrides:{char:{},user:{}},profileInitialized:false,initialProposal:null};
+  const canon=readCanon();
+  c.chatMetadata[STORAGE]={schema:VERSION,seed,config:structuredClone(DEFAULT_CONFIG),canon,ledger:{},overrides:{char:{},user:{}},profileInitialized:false,initialProposal:null,userPersonaIdentity:personaIdentity(canon.user),personaProfiles:{}};
   c.saveMetadata?.();
  }
  return c.chatMetadata[STORAGE]||null;
@@ -87,15 +90,38 @@ function readCanon(){
  const c=S(), character=c.characters?.[c.characterId]||c.characters?.[c.this_chid]||{};
  const cd=character.data||{};
  const card=[cd.description||character.description,cd.personality||character.personality,cd.scenario||character.scenario].filter(Boolean).join('\n');
- const persona=String(c.powerUserSettings?.persona_description||c.persona_description||c.personaDescription||'');
- const a=inferExplicit(card),b=inferExplicit(persona);
- return {char:{...a,name:character.name||cd.name||c.name2||'CHAR',card:card.slice(0,7000)},user:{...b,name:c.name1||'USER',card:persona.slice(0,7000)}};
+ const user=readCurrentPersona(c,user_avatar,inferExplicit);
+ const a=inferExplicit(card);
+ return {char:{...a,name:character.name||cd.name||c.name2||'CHAR',card:card.slice(0,7000)},user};
+}
+/** SillyTavern can auto-switch the active persona AFTER CHAT_CHANGED. Refresh
+ * canon from the live persona source, not only from chat metadata creation. */
+function syncCanon(){
+ const m=meta(false);if(!m)return false;
+ const live=readCanon();
+ const previousChar=m.canon.char||{};
+ const result=syncPersonaProfile(m,live.user);
+ // Edited character cards are also refreshed; manual overrides remain authoritative.
+ const charUpdated=previousChar.name!==live.char.name||previousChar.card!==live.char.card;
+ if(charUpdated){
+  const prefs=m.canon.char.preferences;
+  m.canon.char={...live.char,...(prefs?{preferences:prefs}:{})};
+  m.initialProposal=null;
+ }
+ if(result.changed){
+  setStatus(`USER 페르소나 동기화: ${live.user.name}`);
+  log('Active persona changed:',live.user.name);
+ }
+ if(result.updated || charUpdated){
+  void persist();
+ }
+ return result.changed;
 }
 function setStatus(s){status=s;const node=el('abop-statusline');if(node)node.textContent=s;}
 function branchState(){
  const m=meta(false);if(!m)return null;
  const chat=S().chat||[];
- const rows=sortedRecords(chat,m.ledger||{});
+ const rows=filterRowsByPersona(sortedRecords(chat,m.ledger||{}),m.userPersonaIdentity);
  return replay(m.seed,m.canon,m.config||DEFAULT_CONFIG,rows,m.overrides||{});
 }
 function updatePrompt(){
@@ -106,7 +132,7 @@ function updatePrompt(){
   c.setExtensionPrompt(PROMPT,body,0,0,false,0);
  }catch(e){console.warn('[ABO Pixel] prompt injection unavailable',e);}
 }
-function refresh(){meta();state=branchState();updatePrompt();render();}
+function refresh(){meta();syncCanon();state=branchState();updatePrompt();render();}
 function eventIDFor(messageKey,i){return `${messageKey}/e${i}`;}
 function sourceForCurrent(){
  const c=S(),chat=c.chat||[];
@@ -118,32 +144,36 @@ function sourceForCurrent(){
 }
 async function analyzeLatest({force=false}={}){
  if(working)return;
- const m=meta();const src=sourceForCurrent();if(!m||!src)return setStatus('분석할 CHAR 메시지가 없습니다');
+ const m=meta();syncCanon();const src=sourceForCurrent();if(!m||!src)return setStatus('분석할 CHAR 메시지가 없습니다');
  if(!m.config.enabled)return setStatus('확장이 비활성화됨');
  if(!force&&!m.config.autoAnalyze)return;
- if(m.ledger[src.key]?.analyzed&&!force)return;
- const originChat=S().chatId, originKey=src.key;
+ if(m.ledger[src.key]?.analyzed&&m.ledger[src.key]?.personaId===m.userPersonaIdentity&&!force)return;
+ const originChat=S().chatId, originKey=src.key, originPersona=m.userPersonaIdentity;
  const c=S();
  working=true;setStatus('별도 모델로 사건 분석 중…');render();
  try{
   const last=branchState();
   const prompt=buildAnalyzerUserPrompt({charName:m.canon.char.name,userName:m.canon.user.name,charCard:m.canon.char.card,userPersona:m.canon.user.card,userText:src.userText,assistantText:src.assistantText,existingState:last?{clockHours:last.clockHours,people:Object.fromEntries(Object.entries(last.people).map(([k,p])=>[k,{sex:p.sex,secondary:p.secondary,phase:p.cycle.phase,pregnancy:p.pregnancy.status}]))}:null});
   const reply=await analysisRequest(ANALYZER_SYSTEM,prompt);
-  if(S().chatId!==originChat||!sourceForCurrent()||sourceForCurrent().key!==originKey){setStatus('채팅/응답 변경으로 분석 결과 폐기');return;}
+  syncCanon();
+  if(S().chatId!==originChat||m.userPersonaIdentity!==originPersona||!sourceForCurrent()||sourceForCurrent().key!==originKey){setStatus('채팅/페르소나/응답 변경으로 분석 결과 폐기');return;}
   const events=parseModelOutput(reply,src.userText,src.assistantText).map((e,i)=>({...e,id:eventIDFor(originKey,i),sceneId:e.sceneId||originKey}));
   const existing=m.ledger[originKey]||{};
-  m.ledger[originKey]={analyzed:true,events:[...events,...(existing.manual||[])],manual:existing.manual||[],at:Date.now()};
+  if(existing.personaId&&existing.personaId!==originPersona){setStatus('이 응답은 이전 USER 페르소나의 기록입니다. 새 응답에서 다시 분석하세요.');return;}
+  m.ledger[originKey]={analyzed:true,events:[...events,...(existing.manual||[])],manual:existing.manual||[],personaId:originPersona,at:Date.now()};
   await persist();setStatus(`분석 완료 · 확인된 사건 ${events.length}건`);refresh();
  }catch(e){console.error('[ABO Pixel] generation error',e);setStatus(`분석 실패: ${e.message||'모델/API 연결 확인'}`);}finally{working=false;render();}
 }
 async function initialProfileAnalyze(){
- const m=meta();if(!m||working)return;
+ const m=meta();syncCanon();if(!m||working)return;
  working=true;tab='setup';setStatus('CHAR·USER 프로필 제안 생성 중…');render();
- const chatId=S().chatId;
+ const chatId=S().chatId, originalPersona=m.userPersonaIdentity;
  try{
   const result=await analysisRequest(PROFILE_SYSTEM,JSON.stringify({char:m.canon.char,user:m.canon.user}));
-  if(S().chatId!==chatId){setStatus('채팅 변경으로 분석 결과 폐기');return;}
+  syncCanon();
+  if(S().chatId!==chatId||m.userPersonaIdentity!==originalPersona){setStatus('채팅/페르소나 변경으로 분석 결과 폐기');return;}
   const draft=normalizeSetupProposal(result,chatId);
+  draft.personaIdentity=originalPersona;
   // Models can be wrong. Explicit manual settings always start unchecked/locked.
   for(const role of ['char','user']){
    const locked=m.overrides?.[role]||{};
@@ -164,7 +194,7 @@ function renderSetup(){
  const m=meta(false);if(!m)return '';
  const draft=m.initialProposal;
  const hint='<p class="abop-muted">카드·페르소나의 확정 정보와 성격 기반 제안을 구분합니다. 체크한 항목만 실제 프로필에 적용됩니다. 수동으로 이미 고정한 항목은 보호됩니다.</p>';
- if(!draft||draft.chatId!==S().chatId)return `<section class="abop-frame"><header>◇ INITIAL PROFILE SETUP</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
+ if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity)return `<section class="abop-frame"><header>◇ INITIAL PROFILE SETUP</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
  let out=`<section class="abop-frame"><header>◇ SETUP PROPOSAL <small>미적용 초안</small></header>${hint}
  <div class="abop-actions"><button data-action="init">다시 분석</button><button data-action="discardProposal">제안 버리기</button></div></section>`;
  for(const role of ['char','user']){
@@ -201,7 +231,8 @@ function renderSetup(){
 }
 async function applyProfileProposal(){
  const m=meta(),draft=m?.initialProposal;
- if(!draft||draft.chatId!==S().chatId)return setStatus('적용할 제안이 없습니다');
+ syncCanon();
+ if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity)return setStatus('페르소나가 변경되어 이전 제안은 적용할 수 없습니다');
  let applied=0;
  for(const role of ['char','user']){
   const rec=draft.roles?.[role];if(!rec)continue;
@@ -273,7 +304,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-stars">✦ ▣</span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.0</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-stars">✦ ▣</span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.1</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','STATUS','▦'],['setup','SETUP','◈'],['cycles','CYCLES','◷'],['fertility','FERTILITY','✦'],['preferences','PREFS','♥'],['settings','SETTINGS','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${tab.toUpperCase()} / ${html(S()?.chatId?'CURRENT CHAT':'NO CHAT')}</span><span class="abop-dot">● ${working?'ANALYZING':'READY'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -313,10 +344,11 @@ async function handlePanelChange(e){
  await persist();refresh();
 }
 async function addManualEvents(events){
- const m=meta(),src=sourceForCurrent();if(!m||!src)return setStatus('먼저 대화를 시작하세요');
+ const m=meta(),src=sourceForCurrent();syncCanon();if(!m||!src)return setStatus('먼저 대화를 시작하세요');
  const key=src.key;let rec=m.ledger[key]||{analyzed:false,events:[],manual:[]};
+ if(rec.personaId&&rec.personaId!==m.userPersonaIdentity)return setStatus('이 응답은 이전 USER 페르소나의 기록입니다. 새 응답 뒤에 사건을 기록하세요.');
  const rows=events.map((e,i)=>({...e,id:`${key}/manual:${Date.now()}:${i}`}));
- rec.manual.push(...rows);rec.events.push(...rows);m.ledger[key]=rec;await persist();refresh();
+ rec.manual.push(...rows);rec.events.push(...rows);rec.personaId=m.userPersonaIdentity;m.ledger[key]=rec;await persist();refresh();
 }
 async function handlePanelClick(e){
  const t=e.target.closest('button');if(!t)return;
@@ -357,7 +389,12 @@ async function handlePanelClick(e){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='abo-tracker-chat-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
  }
 }
-function onEvent(){refresh();}
+function onEvent(){refresh();
+ // CHAT_CHANGED may precede SillyTavern's persona auto-selection. Recheck after
+ // its own synchronous/async persona-lock handlers have finished.
+ setTimeout(()=>refresh(),0);
+ setTimeout(()=>refresh(),300);
+}
 function onMessage(){
  refresh();const m=meta(false);if(!m?.config?.autoAnalyze||!m.config.enabled)return;
  // Allow the host to finish appending and selecting the final swipe before analysis.
@@ -365,7 +402,7 @@ function onMessage(){
 }
 function subscribe(){
  const c=S(),source=c.eventSource,t=c.event_types||{};if(!source?.on)return;
- for(const name of ['CHAT_CHANGED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED','PERSONA_CHANGED','CHARACTER_EDITED'])if(t[name])source.on(t[name],onEvent);
+ for(const name of ['CHAT_CHANGED','CHAT_CREATED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED','PERSONA_CHANGED','PERSONA_UPDATED','PERSONA_RENAMED','CHARACTER_EDITED'])if(t[name])source.on(t[name],onEvent);
  if(t.MESSAGE_RECEIVED)source.on(t.MESSAGE_RECEIVED,onMessage);
  if(t.GENERATION_STARTED)source.on(t.GENERATION_STARTED,updatePrompt);
 }
