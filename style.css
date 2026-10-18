@@ -16,7 +16,9 @@
 #abop-panel .abop-window{background:var(--ab-bg);max-width:1020px;width:100%;max-height:min(90vh,920px);border:2px solid var(--ab-line);box-shadow:0 0 0 3px var(--ab-bg),0 22px 65px var(--ab-shadow);border-radius:4px;display:flex;flex-direction:column;overflow:hidden}
 #abop-panel .abop-top{display:flex;gap:10px;align-items:center;background:linear-gradient(105deg,var(--ab-titlebar),var(--ab-raised));border-bottom:1px solid var(--ab-line);padding:11px 15px;font-size:14px;letter-spacing:.8px;color:var(--ab-heading)}
 #abop-panel .abop-top strong{flex:1;font-weight:800}
-#abop-panel .abop-stars{color:var(--ab-mint);letter-spacing:4px}
+/* A single CSS-drawn pixel emblem replaces mismatched font-dependent glyphs. */
+#abop-panel .abop-brandmark{display:inline-block;position:relative;flex:0 0 18px;width:18px;height:18px;background:var(--ab-control);border:1px solid var(--ab-mint);border-radius:1px;box-shadow:2px 2px 0 var(--ab-soft-line)}
+#abop-panel .abop-brandmark::before{content:'';display:block;position:absolute;left:3px;top:3px;width:4px;height:4px;background:var(--ab-mint);box-shadow:6px 0 var(--ab-mint),0 6px var(--ab-mint),6px 6px var(--ab-mint)}
 #abop-panel .abop-top .abop-version{font-size:11px;color:var(--ab-secondary)}
 #abop-panel .abop-top button{background:var(--ab-control);border:1px solid var(--ab-line);color:var(--ab-heading);border-radius:3px;min-width:31px;min-height:30px}
 #abop-panel .abop-shell{display:flex;min-height:360px;overflow:hidden;flex:1}

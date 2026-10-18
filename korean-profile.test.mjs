@@ -43,5 +43,32 @@ test('exact user-provided Korean UI text and version appear in the extension',()
   const index=readFileSync(new URL('../index.js',import.meta.url),'utf8');
   assert.ok(index.includes('잠재 후보 3~5개 · 확정 후보 별도'));
   assert.ok(index.includes('선택을 돕기 위해 제공되는 일반 후보입니다. 체크 시에만 적용됩니다.'));
-  assert.ok(index.includes('v0.3.5'));
+  assert.ok(index.includes('v0.3.6'));
+});
+
+
+test('initial setup distinguishes intimate nonverbal vocal patterns from spoken language for both roles',()=>{
+  assert.match(PROFILE_SYSTEM,/VOICE & SPEECH STYLE ANALYSIS/);
+  assert.match(PROFILE_SYSTEM,/moans/);
+  assert.match(PROFILE_SYSTEM,/breathing/);
+  assert.match(PROFILE_SYSTEM,/held-back vs freely expressed voice/);
+  assert.match(PROFILE_SYSTEM,/honorific vs casual register/);
+  assert.match(PROFILE_SYSTEM,/Polite speech or sentence endings belong here, NOT in vocalStyle/);
+  assert.match(PROFILE_SYSTEM,/For BOTH char and user/);
+  assert.match(PROFILE_SYSTEM,/basis:"suggested"/);
+  assert.match(PROFILE_SYSTEM,/Do not infer consent, acts, or preferences/);
+  assert.ok(PROFILE_KOREAN_REFERENCE_VOCABULARY.some(x=>x.includes('NSFW 발성 참고 어휘')));
+  assert.ok(PROFILE_KOREAN_REFERENCE_VOCABULARY.some(x=>x.includes('NSFW 언어 참고 어휘')));
+  assert.match(PROFILE_SYSTEM,/No more than five latent tags per role/);
+  assert.match(PROFILE_SYSTEM,/Never create a preference as CONFIRMED unless explicitly stated/);
+});
+
+test('titlebar uses a single CSS pixel emblem instead of mixed Unicode glyphs',()=>{
+  const index=readFileSync(new URL('../index.js',import.meta.url),'utf8');
+  const css=readFileSync(new URL('../style.css',import.meta.url),'utf8');
+  assert.match(index,/<span class="abop-brandmark" aria-hidden="true"><\/span>/);
+  assert.doesNotMatch(index,/✦ ▣/);
+  assert.match(css,/\.abop-brandmark::before/);
+  assert.match(index,/ABO \/ RELATIONSHIP TRACKER/);
+  assert.match(index,/v0\.3\.6/);
 });

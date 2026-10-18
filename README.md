@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.5 (Beta)
+# ABO Pixel Tracker v0.3.6 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -53,6 +53,12 @@ Tests are mocked unit tests; a live deployment connection test is still required
 
 Adds `preference-labels.mjs` to display localized labels for common preference IDs, including context-aware BDSM/NSFW terms. Existing machine IDs, preference extraction prompts, suggestions, profile merge rules, saved metadata, and world info are unchanged. Editing an unchanged translated label preserves the original ID. Replace the repository root files and include the new module before updating SillyTavern.
 
+
+## v0.3.6 — NSFW-aware voice analysis and titlebar polish
+
+- Initial setup now guides `vocalStyle` to describe source-grounded nonverbal reactions relevant to intimacy (breathing, moans where applicable, restrained/expression of sound, pitch, volume); `speechStyle` handles register, address terms, requests, teasing, and shifts in intimate speech. Hypothetical reactions remain editable suggestions, not past events.
+- Additional Korean NSFW vocabulary is **reference-only**, not a fixed translation table or mandatory list of interests. Candidate counts, classifications, selection rules, and machine IDs are unchanged.
+- Replaced unrelated `✦ ▣` titlebar symbols with a single CSS-drawn pixel emblem for light and dark themes.
 
 ## v0.3.5 — Korean-language profile analysis
 
