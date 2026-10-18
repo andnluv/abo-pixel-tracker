@@ -1,10 +1,10 @@
 {
   "name": "abo-pixel-tracker",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check index.js && node --check core.mjs && node --check analyzer.mjs"
+    "check": "node --check index.js && node --check core.mjs && node --check analyzer.mjs && node --check profile.mjs"
   }
 }

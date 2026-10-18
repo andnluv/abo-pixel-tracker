@@ -1,4 +1,5 @@
 /* ABO Pixel Tracker · standalone pure state engine. No third-party extension code. */
+import {anatomyDefault} from './profile.mjs';
 export const VERSION = 1;
 export const PHASE_RATES = Object.freeze({ quiet: .10, prodrome: .40, active: .75, recovery: .35 });
 export const INSTINCTS = Object.freeze({
@@ -26,7 +27,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   analysisConnection:'',customApiUrl:'',customModel:'',
   rate:{rise:.03,fertile:.14,peak:.30,fall:.06},
   sideEffectScale:1, windowCap:.85,
-  style:'pixel', analysisMaxChars:4500
+  style:'pixel',uiTheme:'auto', analysisMaxChars:4500
 });
 const CLAMP=(n,lo,hi)=>Math.min(hi,Math.max(lo,n));
 export const clamp=CLAMP;
@@ -55,7 +56,8 @@ export function person(id,name,seed,canon={}){
  const recovery=abo==='omega'?pickInt(seed,`${id}:recovery`,12,72):pickInt(seed,`${id}:recovery`,12,48);
  return {
   id,name:String(name||id),sex,secondary:abo,source:{sex:sex!=='unknown'?'card':'unknown',secondary:secondary!=='unknown'?'card':'initial_roll'},
-  locks:{},anatomy:omegaMale?(canon.anatomy||'combined'):null,
+  locks:{},anatomy:canon.anatomy||anatomyDefault(sex,abo),anatomyDetail:canon.anatomyDetail||'',inseminationOrgan:canon.inseminationOrgan||'',
+  presentation:{pheromoneScent:canon.pheromoneScent||'',contactStyle:canon.contactStyle||'',vocalStyle:canon.vocalStyle||'',speechStyle:canon.speechStyle||''},
   cycle:{enabled:abo!=='beta',intervalHours:interval*24,prodromeHours:prodrome,activeHours:active,recoveryHours:recovery,anchorHour:interval*24, phase:'quiet',ovulationHour:null},
   menstruation:{enabled:omegaMale||sex==='female',days:pickInt(seed,`${id}:menses`,3,7)},
   fertile:{gestate:(abo==='omega'||sex==='female'&&['alpha','beta'].includes(abo)),impregnate:abo==='alpha'||(sex==='male'&&abo==='beta')},
@@ -314,17 +316,20 @@ export function replay(seed,canon,config,rows,overrides={}){
   for(const [k,v] of Object.entries(changes||{})){
    if(k==='sex')p.sex=normalizeSex(v);
    else if(k==='secondary')p.secondary=normalizeABO(v);
-   else if(k==='anatomy'&&['combined','vaginal_only','male_only'].includes(v))p.anatomy=v;
+   else if(k==='anatomy'&&['combined','vaginal_only','male_only','female_only','female_alpha_combined','custom'].includes(v))p.anatomy=v;
+   else if(k==='anatomyDetail'||k==='inseminationOrgan')p[k]=String(v).slice(0,1200);
+   else if(['pheromoneScent','contactStyle','vocalStyle','speechStyle'].includes(k))p.presentation[k]=String(v).slice(0,220);
    else if(k==='name')p.name=String(v).slice(0,100);
    else if(k==='cycleEnabled')p.cycle.enabled=!!v;
    else if(k==='gestate')p.fertile.gestate=!!v;
    else if(k==='impregnate')p.fertile.impregnate=!!v;
+   else if(k==='menstruationEnabled')p.menstruation.enabled=!!v;
   }
   if(!Object.hasOwn(changes,'gestate'))p.fertile.gestate=p.secondary==='omega'||p.sex==='female'&&['alpha','beta'].includes(p.secondary);
   if(!Object.hasOwn(changes,'impregnate'))p.fertile.impregnate=p.secondary==='alpha'||p.sex==='male'&&p.secondary==='beta';
-  p.menstruation.enabled=p.secondary==='omega'||p.sex==='female';
+  if(!Object.hasOwn(changes,'menstruationEnabled'))p.menstruation.enabled=p.secondary==='omega'||p.sex==='female';
   if(!Object.hasOwn(changes,'cycleEnabled'))p.cycle.enabled=p.secondary!=='beta';
-  if(p.sex==='male'&&p.secondary==='omega'&&!p.anatomy)p.anatomy='combined';
+  if(!Object.hasOwn(changes,'anatomy'))p.anatomy=anatomyDefault(p.sex,p.secondary);
  }
  for(const row of rows){for(const evt of row.events||[])applyEvent(s,evt);}
  updateCycles(s);return s;
@@ -336,6 +341,8 @@ export function formatPrompt(s,hideTruth=false){
  const out=['[ABO TRACKER — CONTINUITY / NOT CHARACTER KNOWLEDGE]',`Story clock: D${Math.floor(s.clockHours/24)} ${Math.floor(s.clockHours%24)}h. Treat time as story time, not real time.`];
  for(const [id,p] of Object.entries(s.people)){
   out.push(`${id.toUpperCase()} ${p.name}: sex=${p.sex}; ABO=${p.secondary}; anatomy=${p.anatomy||'not specified'}; cycle=${p.cycle.phase}; menses=${p.menstruation.phase}; bond=${p.bondWith||'none'}; symptoms: condition=${p.body.condition}, sensitivity=${p.body.sensitivity}, stress=${p.body.stress}; recent meds=${p.medication.filter(m=>m.until>=s.clockHours).map(m=>m.drug).join(',')||'none'}.`);
+  if(p.anatomyDetail||p.inseminationOrgan)out.push(`${id.toUpperCase()} anatomical notes=${(p.anatomyDetail||'').slice(0,240)}; insemination anatomy=${(p.inseminationOrgan||'').slice(0,240)}.`);
+  const prs=p.presentation||{};if(Object.values(prs).some(Boolean))out.push(`${id.toUpperCase()} interaction profile: scent=${prs.pheromoneScent||'unknown'}; contact=${prs.contactStyle||'unknown'}; voice=${prs.vocalStyle||'unknown'}; speech=${prs.speechStyle||'unknown'}.`);
   const pr=p.pregnancy;
   if(!hideTruth&&pr.status!=='none')out.push(`INTERNAL PHYSIOLOGY for ${p.name}: pregnancy=${pr.status}, elapsed=${pr.conceivedAt===null?'?':Math.floor((s.clockHours-pr.conceivedAt)/24)} days. Do not disclose this as knowledge unless in-story discovery established. Subject awareness=${p.awareness.pregnancy}.`);
   else out.push(`${p.name} awareness of pregnancy=${p.awareness.pregnancy}.`);

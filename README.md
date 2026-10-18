@@ -1,44 +1,26 @@
-# ABO Pixel Tracker · SillyTavern Extension (v0.2.0 Beta)
+# ABO Pixel Tracker v0.3.0 (Beta)
 
-A standalone SillyTavern extension for tracking CHAR / USER ABO state, cycle events, medications, fertility, relationships and selected character preferences. Dark pixel-inspired UI. **No Tavern Helper dependency.**
+Independent SillyTavern client extension (Tavern Helper is **not** required).
 
-> **Beta:** Not yet verified on a live Vultr/SillyTavern instance. Back up chat data and test with a separate chat. Some advanced scenario rules are still design-only.
+**Important:** Prototype/beta. Its worldbuilding and probability rules are fictional, not medical guidance. Some advanced scenarios are not yet fully implemented. Test in a backed-up chat before using in a long roleplay.
 
-## Install from GitHub (no SSH required)
+## Install or update from GitHub
 
-1. Upload the **contents of this repository folder** to the **root of your GitHub repository**. `manifest.json` and `index.js` must be at the repository root, not inside an extra nested folder.
-2. In SillyTavern, select **Extensions → Install Extension**.
-3. Paste your repository URL, for example `https://github.com/<account>/<repository>` (replace with your real address). Install and refresh SillyTavern.
-4. Open **World Info** and import [`worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json`](worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json) separately. Associate it with the intended chat or characters.
-5. Open a chat and click the `▦ ABO` launcher. In **SETTINGS**, choose **Current connection** (default), a saved **Connection Manager profile**, or a direct OpenAI-compatible API. Test the connection before enabling automatic analysis.
+This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, `analyzer.mjs`, and **`profile.mjs`** at its root.
 
-For detailed Korean instructions see [README_KO.md](README_KO.md).
+1. If this is a new installation, use **SillyTavern → Extensions → Install Extension**, with the public repository URL.
+2. If an earlier version is installed, upload/commit the new files to the existing repository, keeping the same path and folder names. **Replace** the old files rather than creating a nested folder.
+3. Run the extension updater in SillyTavern and refresh the page (hard refresh if styles are cached). If the updater does not detect the release, reload the extension from SillyTavern's extension manager.
+4. Import `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json` separately if not already imported. **No need to reimport World Info** merely to update this extension.
 
-## Files
+## Changes since v0.2.0
 
-- `manifest.json` — SillyTavern extension entry point.
-- `index.js`, `core.mjs`, `analyzer.mjs`, `style.css`, `rules.json` — extension runtime and rules.
-- `worldinfo/` — importable English World Info JSON (not auto-imported).
-- `docs/` — readable World Info rules.
-- `tests/` — deterministic engine unit tests.
+- **SETUP:** unified adult CHAR + USER profile analyzer suggests physical profile and up to 5 supported latent intimacy preferences per character. Explicit card preferences remain distinct from inferred interests. All results are editable. **Nothing is applied until `✓ 선택한 제안 적용` is clicked.** Inferred suggestions default to unchecked; unchecked items are ignored; existing manual overrides take priority.
+- **STATUS:** anatomy selection is contextual. Male Omega: combined/cuntboy/male-only/custom; female Alpha: male-combined/female-only/custom; all other classic types: standard/default or custom. Female Alpha retains both gestation and impregnation ability, with editable fictional insemination-anatomy notes.
+- **DESIGN:** accessible light and brighter dark variants, auto/system option, quick theme toggle ◐, larger select/label text, sans-serif Pretendard preferred (system-font fallback). Pretendard is fetched from an optional external CDN; no font files are included.
+- Per-chat proposal and theme settings. Existing chat state remains in the same metadata namespace.
+- Same current/default, saved Connection Manager profile, or direct-compatible API settings as before.
 
-## Verify locally
+## Local verification
 
-Node.js 20+:
-
-```bash
-npm test
-npm run check
-```
-
-## Connection privacy
-
-Direct-mode API tokens are stored only in the active browser page's memory, never in the chat metadata or exported backup. API endpoints must support browser CORS for direct mode. Use a saved Connection Manager profile if the provider does not allow browser requests.
-
-## Known limitations
-
-- Automatic event extraction depends on the model; mistakes or missing event evidence are possible.
-- This beta does not implement every advanced rule in the World Info specification.
-- Main roleplay model calls and separate tracker analysis calls can incur usage fees.
-- Installation from a repository URL needs Git on the SillyTavern server and permission to install extensions.
-- No GitHub repository has been created or published by this package.
+`npm run check && npm test` (Node.js 20+). This checks syntax and the deterministic engine/profile tests, **not** live API calls or SillyTavern/Vultr compatibility. See `README_KO.md` for detailed instructions.
