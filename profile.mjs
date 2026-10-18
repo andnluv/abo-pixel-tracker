@@ -11,10 +11,21 @@ const enumFields={
 };
 const booleanFields=['gestate','impregnate','menstruationEnabled','cycleEnabled'];
 const stringFields=['anatomyDetail','inseminationOrgan','pheromoneScent','contactStyle','vocalStyle','speechStyle'];
+/** Reference vocabulary only: the model chooses context-appropriate Korean labels.
+ * Not a forced translation table and not a list of suggested preferences. */
+export const PROFILE_KOREAN_REFERENCE_VOCABULARY = Object.freeze([
+  '관계·친밀 성향: 친밀감, 감정적 교감, 신뢰, 긴장감, 애정 표현, 스킨십, 밀착, 거리감, 시선, 관계의 주도권',
+  'NSFW·BDSM 기본 용어: 지배·복종(D/s), 스위치, 권력 교환, 구속·본디지, 역할극, 감각 플레이, 언어 플레이, 칭찬 플레이, 도발, 애프터케어',
+  '서로 구별할 표현: 노출 플레이, 수치심 플레이, 굴욕 플레이, 공포 플레이, 소유욕, 통제권, 신체·음성 취향',
+  '장면 기록용 용어: 자세·체위, 접촉, 자극, 압박, 호흡, 숨소리, 발성, 신음, 목소리, 말투, 존댓말·반말',
+  'ABO 맥락 용어: 알파, 베타, 오메가, 히트, 러트, 페로몬, 각인, 억제제, 가임기, 배란, 월경, 임신'
+]);
+const PROFILE_KOREAN_VOCABULARY_NOTE = `\nKorean vocabulary reference (examples, NOT an approved list of preferences, NOT forced one-to-one translations):\n- ${PROFILE_KOREAN_REFERENCE_VOCABULARY.join('\n- ')}\nUse accurate, natural Korean suited to each card/persona and its context. Do not force a listed term into results without evidence or a valid general candidate. Do not automatically label a relationship trait as BDSM or sexual play. Differentiate exhibitionism, embarrassment, humiliation, and other independent interests. For newly generated tags, invent an appropriate Korean label based on meaning; do not rely on a fixed dictionary.\n`;
 export const PROFILE_SYSTEM = `You analyze two ADULT fictional character descriptions for an ABO SillyTavern profile setup. Return ONLY a JSON object (no markdown):
-{"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"short source evidence"},"secondary":null,"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","level":"liked","reason":"explicit source"}],"latent":[{"id":"some_interest","reason":"characterization evidence"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
+LANGUAGE RULE: Write all human-readable analysis prose in fluent, natural KOREAN. This includes ALL descriptive field values (pheromoneScent, contactStyle, vocalStyle, speechStyle, anatomyDetail, inseminationOrgan), every field reason, every confirmed/latent preference reason, and every preference label. Do not copy full English source descriptions into the result as analysis. Refer faithfully to the source, including original proper nouns or brief verbatim quotations only when necessary. Do NOT translate or alter machine-readable JSON keys, enum values, preference IDs, or quoted original proper nouns.
+{"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"카드에 남성이라고 명시됨"},"secondary":null,"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","label":"언어적 도발","level":"liked","reason":"한국어로 작성한 카드 근거"}],"latent":[{"id":"some_interest","label":"문맥에 맞춘 한국어 명칭","reason":"한국어로 작성한 성격 기반 근거"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
 Every field may be omitted or null when not supported. For populated fields use {"value":...,"basis":"explicit|suggested","reason":"..."}. Sex=male|female|nonbinary|unknown; secondary=alpha|beta|omega|unknown; anatomy=combined|vaginal_only|male_only|female_only|female_alpha_combined|custom. Other six descriptive fields must be concise strings. gestate/impregnate/menstruationEnabled/cycleEnabled are booleans.
-Explicit facts in sources must be distinguished from characterization-based guesses. Never infer sex, secondary gender, anatomy, or sexual position from a stereotype. Never create a preference as CONFIRMED unless explicitly stated. Offer 3-5 editable latent preference CANDIDATES for BOTH char and user. Prefer evidence-grounded suggestions; if insufficient evidence, return general neutral OPTIONAL candidates instead of claiming to know a preference. Do not claim user interests as confirmed from personality alone. Use source:"optional" for generic candidates and source:"suggested" for character-grounded interests. No more than five latent tags per role. Preference tags are neutral snake_case strings, not graphic text; topics can include exhibitionism, embarrassment, humiliation, power_exchange, sensory_play and other card-grounded interests. For USER, only treat the persona's own words as confirmed; do not infer consent, decisions, or acts from assistant narration. This is a PROPOSAL, never an instruction to change actual state.`;
+Explicit facts in sources must be distinguished from characterization-based guesses. Never infer sex, secondary gender, anatomy, or sexual position from a stereotype. Never create a preference as CONFIRMED unless explicitly stated. Offer 3-5 editable latent preference CANDIDATES for BOTH char and user. Prefer evidence-grounded suggestions; if insufficient evidence, return general neutral OPTIONAL candidates instead of claiming to know a preference. Do not claim user interests as confirmed from personality alone. Use source:"optional" for generic candidates and source:"suggested" for character-grounded interests. No more than five latent tags per role. Preference IDs are neutral snake_case strings for stable storage (English machine IDs only), not graphic text. For EACH preference candidate, also provide a separate short Korean "label" appropriate for an ADULT NSFW/relationship profile. Labels are editable presentation only; never replace or translate the ID itself. Do not translate the user-provided source examples yourself as a fixed mapping: use the reference vocabulary only for natural-language guidance and generate a context-sensitive label. Topics can include exhibitionism, embarrassment, humiliation, power_exchange, sensory_play and other card-grounded interests. For USER, only treat the persona's own words as confirmed; do not infer consent, decisions, or acts from assistant narration. This is a PROPOSAL, never an instruction to change actual state.${PROFILE_KOREAN_VOCABULARY_NOTE}`;
 export function anatomyDefault(sex,secondary){
  if(sex==='male'&&secondary==='omega')return 'combined';
  if(sex==='female'&&secondary==='alpha')return 'female_alpha_combined';
@@ -37,6 +48,7 @@ export const OPTION_CANDIDATES=Object.freeze([
  ['restraint','구속 플레이'],['aftercare','사후 돌봄']
 ]);
 const idClean=value=>clean(value).slice(0,80).replace(/[^\p{L}\p{N}_ -]/gu,'');
+const koreanCandidateLabel=value=>{const v=clean(value).slice(0,80);return /[가-힣]/u.test(v)?v:'';};
 function supplementCandidates(latent,confirmed,min=3){
  const seen=new Set([...latent,...confirmed].map(x=>x.id.toLowerCase()));
  for(const [id] of OPTION_CANDIDATES){
@@ -54,7 +66,7 @@ const uniquePrefs=(values,limit,kind)=>{
   const id=idClean(typeof item==='string'?item:item?.id);
   if(!id||seen.has(id.toLowerCase()))continue;
   seen.add(id.toLowerCase());
-  out.push({id,source:item?.source==='optional'?'optional':'suggested',level:kind==='confirmed'&&['liked','strongly_liked','disliked','restricted'].includes(item?.level)?item.level:kind==='confirmed'?'liked':'latent',reason:clean(item?.reason).slice(0,150),checked:kind==='confirmed'});
+  out.push({id,...(koreanCandidateLabel(item?.label)?{label:koreanCandidateLabel(item?.label)}:{}),source:item?.source==='optional'?'optional':'suggested',level:kind==='confirmed'&&['liked','strongly_liked','disliked','restricted'].includes(item?.level)?item.level:kind==='confirmed'?'liked':'latent',reason:clean(item?.reason).slice(0,150),checked:kind==='confirmed'});
   if(out.length>=limit)break;
  }
  return out;
@@ -97,10 +109,10 @@ export function mergeSelectedPreferences(existing,proposal){
  for(const p of proposal?.confirmed||[]){
   if(!p.checked||!p.id)continue;
   const existing=confirmed.find(x=>x.id===p.id);if(existing?.locked)continue;
-  if(existing){existing.level=p.level;existing.source='user_approved_setup';existing.locked=true;continue;}
+  if(existing){existing.level=p.level;existing.source='user_approved_setup';existing.locked=true;if(p.label)existing.label=p.label;continue;}
   const pos=latent.findIndex(x=>x.id===p.id);if(pos>=0)latent.splice(pos,1);
-  confirmed.push({id:p.id,level:p.level,source:'user_approved_setup',locked:true,evidence:['setup']});
+  confirmed.push({id:p.id,...(p.label?{label:p.label}:{}),level:p.level,source:'user_approved_setup',locked:true,evidence:['setup']});
  }
- for(const p of proposal?.latent||[])if(p.checked&&p.id&&!has(p.id))latent.push({id:p.id,level:'latent',source:p.source==='custom'?'user_added_setup':'user_approved_setup',evidence:[]});
+ for(const p of proposal?.latent||[])if(p.checked&&p.id&&!has(p.id))latent.push({id:p.id,...(p.label?{label:p.label}:{}),level:'latent',source:p.source==='custom'?'user_added_setup':'user_approved_setup',evidence:[]});
  return {confirmed,latent,attitude:proposal?.useAttitude?proposal.attitude:(old.attitude||'curious')};
 }

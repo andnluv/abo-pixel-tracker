@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.1 (Beta)
+# ABO Pixel Tracker v0.3.5 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -52,3 +52,17 @@ Tests are mocked unit tests; a live deployment connection test is still required
 ## v0.3.4 — Korean preference display strings
 
 Adds `preference-labels.mjs` to display localized labels for common preference IDs, including context-aware BDSM/NSFW terms. Existing machine IDs, preference extraction prompts, suggestions, profile merge rules, saved metadata, and world info are unchanged. Editing an unchanged translated label preserves the original ID. Replace the repository root files and include the new module before updating SillyTavern.
+
+
+## v0.3.5 — Korean-language profile analysis
+
+Initial CHAR/USER setup requests Korean output for all descriptive profile fields, proposal reasons, and Korean candidate display labels. Machine-readable IDs/enums remain unchanged; a model-provided Korean label is editable and retained with a selected preference, including new arbitrary snake_case IDs. The prompt includes a **reference-only** vocabulary of common adult-intimacy, BDSM, vocalization and ABO terms; it does not force translations of user-supplied examples or affect candidate selection/classification. Existing static ID translations remain as backwards-compatible fallbacks.
+
+Exact Korean UI strings: `잠재 후보 3~5개 · 확정 후보 별도` and `선택을 돕기 위해 제공되는 일반 후보입니다. 체크 시에만 적용됩니다.` The RP event analyzer retains source-language exact evidence quotes for validation.
+
+## Credits & Inspiration
+
+The menstrual/reproductive cycle tracking concept was inspired in part by **Koofer-zia's 《角色生理状态引擎》**:
+https://github.com/koofer-zia/sillytavern-life-state
+
+ABO Pixel Tracker is implemented separately; it does not include or modify Koofer-zia's original code, prompts, or assets.

@@ -5,7 +5,7 @@ import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
 import {OPTION_CANDIDATES} from './profile.mjs';
-import {preferenceLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel} from './preference-labels.mjs';
+import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel} from './preference-labels.mjs';
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
@@ -167,7 +167,7 @@ async function initialProfileAnalyze(){
    // Retry once only for empty/truncated/malformed JSON. Never change APIs silently.
    if(!/JSON|응답|출력|텍스트/i.test(String(firstError?.message)))throw firstError;
    setStatus('JSON 형식이 불완전하여 간결한 출력으로 한 번 재시도 중…');render();
-   const brief='Keep each reason under 75 characters. Compact valid JSON only, no markdown. At least 3 latent candidates per role; mark non-evidence options source:"optional". '+PROFILE_SYSTEM;
+   const brief='Output all descriptive values, reasons and candidate labels in natural Korean; keep English machine IDs and enums. Keep each reason under 75 Korean characters. Compact valid JSON only, no markdown. At least 3 latent candidates per role; mark non-evidence options source:"optional". '+PROFILE_SYSTEM;
    const retry=await analysisRequest(brief,setupInput,setupMax);
    draft=normalizeSetupProposal(retry,chatId);
   }
@@ -213,17 +213,17 @@ function renderSetup(){
    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-proposal-check="${role}" data-i="${i}" ${checked?'checked':''} ${disabled?'disabled':''}/><span class="abop-sr-only">${html(f.label)} 적용</span></label>
     <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'카드 명시':'분석 제안'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
   }
-  out+=`</div><h3 class="abop-setup-subtitle">친밀 성향·취향 후보 <span>최소 3개 · 자동 최대 5개</span></h3>`;
+  out+=`</div><h3 class="abop-setup-subtitle">친밀 성향·취향 후보 <span>잠재 후보 3~5개 · 확정 후보 별도</span></h3>`;
   for(const [kind,list] of [['confirmed',d.confirmed],['latent',d.latent]]){
    for(const [i,pref] of list.entries()){
-    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-pref-check="${role}" data-kind="${kind}" data-i="${i}" ${pref.checked?'checked':''}/><span class="abop-sr-only">${html(preferenceLabel(pref.id))} 적용</span></label>
+    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-pref-check="${role}" data-kind="${kind}" data-i="${i}" ${pref.checked?'checked':''}/><span class="abop-sr-only">${html(preferenceDisplayLabel(pref))} 적용</span></label>
      <div class="abop-proposal-content"><div class="abop-rowhead"><b>${kind==='confirmed'?'카드 확정':pref.source==='optional'?'선택 후보':'잠재 취향'}</b><span class="abop-basis ${kind==='confirmed'?'explicit':'suggested'}">${kind==='confirmed'?'확정 제안':pref.source==='optional'?'선택 후보':pref.source==='custom'?'직접 추가':'잠재 제안'}</span></div>
-     <input data-pref-id="${role}" data-kind="${kind}" data-i="${i}" type="text" value="${html(preferenceLabel(pref.id))}" title="원본 ID: ${html(pref.id)}" aria-label="취향 이름" />
+     <input data-pref-id="${role}" data-kind="${kind}" data-i="${i}" type="text" value="${html(preferenceDisplayLabel(pref))}" title="원본 ID: ${html(pref.id)}" aria-label="취향 이름" />
      ${kind==='confirmed'?`<select data-pref-level="${role}" data-i="${i}">${choiceHTML(LEVELS.filter(x=>x[0]!=='latent'),pref.level)}</select>`:''}
      <small>${html(pref.reason||'캐릭터의 성격·설정 기반 제안')}</small></div></div>`;
    }
   }
-  out+=`<div class="abop-pref-add"><label>후보 직접 추가<input id="abop-newpref-${role}" type="text" placeholder="예: 애프터케어, 역할극, 노출 플레이" maxlength="80" /></label><button data-action="addPref" data-role="${role}" type="button">+ 후보 추가</button></div><p class="abop-muted">선택 후보은 카드에서 판독된 취향이 아닌 선택을 돕기 위한 일반 후보입니다. 체크하지 않으면 저장되지 않습니다.</p>`;
+  out+=`<div class="abop-pref-add"><label>후보 직접 추가<input id="abop-newpref-${role}" type="text" placeholder="예: 애프터케어, 역할극, 노출 플레이" maxlength="80" /></label><button data-action="addPref" data-role="${role}" type="button">+ 후보 추가</button></div><p class="abop-muted">선택을 돕기 위해 제공되는 일반 후보입니다. 체크 시에만 적용됩니다.</p>`;
   out+=`<div class="abop-rowhead abop-attitude"><label class="abop-check"><input type="checkbox" data-pref-attitude-check="${role}" ${d.useAttitude?'checked':''}/> 성향 적용</label>
    <select data-pref-attitude="${role}">${choiceHTML([['open','열려 있음'],['reserved','소극적임'],['curious','호기심만 있음']],d.attitude)}</select></div></section>`;
  }
@@ -261,7 +261,7 @@ function selectedSection(){
   <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">D${Math.floor(e.at/24)} · ${html(e.kind)} ${html(e.person||'')}</div>`).join('')||'기록 없음'}</details></section>`;
  if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 생리 주기</header><p class="abop-title">${html(p.name)}</p><p>단계: <b>${html(cyclePhaseLabel(p.cycle.phase))}</b></p><p>간격: ${fmt(p.cycle.intervalHours/24)}일</p><p>전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일</p><p>회복: ${fmt(p.cycle.recoveryHours)}시간</p><p>월경: ${p.menstruation.enabled?'활성':'없음/미설정'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p><p class="abop-muted">본능 행동화: ${(instinctChance(p,p.cycle.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p></section>`).join('')}</div>`;
  if(tab==='fertility')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html(p.bondWith||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·수태 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure">수태 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceLabel(x.id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
+ if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
   <label class="abop-fieldlabel">색상 테마<select data-theme-choice>${choiceHTML([['auto','시스템 설정에 맞춤'],['light','라이트 · 밝은 테마'],['dark','다크 · 어두운 테마']],m.config.uiTheme||'auto')}</select></label>
@@ -305,7 +305,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-stars">✦ ▣</span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.4</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-stars">✦ ▣</span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.5</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','수태','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'수태','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -324,7 +324,13 @@ async function handlePanelChange(e){
  }else if(t.dataset.proposalCheck){const field=m.initialProposal?.roles?.[t.dataset.proposalCheck]?.fields?.[Number(t.dataset.i)];if(field)field.checked=t.checked;
  }else if(t.dataset.proposalValue){const f=m.initialProposal?.roles?.[t.dataset.proposalValue]?.fields?.[Number(t.dataset.i)];if(f){f.value=typeof f.value==='boolean'?t.value==='true':t.value;}
  }else if(t.dataset.prefCheck){const pref=m.initialProposal?.roles?.[t.dataset.prefCheck]?.[t.dataset.kind]?.[Number(t.dataset.i)];if(pref)pref.checked=t.checked;
- }else if(t.dataset.prefId){const pref=m.initialProposal?.roles?.[t.dataset.prefId]?.[t.dataset.kind]?.[Number(t.dataset.i)];if(pref)pref.id=preferenceIdFromEdit(t.value,pref.id);
+ }else if(t.dataset.prefId){
+  const pref=m.initialProposal?.roles?.[t.dataset.prefId]?.[t.dataset.kind]?.[Number(t.dataset.i)];
+  if(pref){
+   const original=pref.id, shown=preferenceDisplayLabel(pref), edited=String(t.value||'').trim();
+   pref.id=preferenceIdFromEdit(edited,original,pref.label);
+   if(edited!==shown)pref.label=/[가-힣]/u.test(edited)?edited:'';
+  }
  }else if(t.dataset.prefLevel){const pref=m.initialProposal?.roles?.[t.dataset.prefLevel]?.confirmed?.[Number(t.dataset.i)];if(pref&&LEVELS.some(x=>x[0]===t.value))pref.level=t.value;
  }else if(t.dataset.prefAttitude){const d=m.initialProposal?.roles?.[t.dataset.prefAttitude];if(d)d.attitude=t.value;
  }else if(t.dataset.prefAttitudeCheck){const d=m.initialProposal?.roles?.[t.dataset.prefAttitudeCheck];if(d)d.useAttitude=t.checked;

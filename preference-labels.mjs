@@ -143,6 +143,10 @@ export function preferenceLabel(id) {
   const raw=String(id??'').trim();
   return PREFERENCE_LABELS[raw.toLowerCase()] ?? raw;
 }
+export function preferenceDisplayLabel(preference) {
+  const explicit=String(preference?.label??'').trim();
+  return /[가-힣]/u.test(explicit) ? explicit : preferenceLabel(preference?.id);
+}
 export const preferenceLevelLabel = value => PREFERENCE_LEVELS[value] ?? String(value??'');
 export const attitudeLabel = value => ATTITUDE_LABELS[value] ?? String(value??'');
 export const cyclePhaseLabel = value => CYCLE_PHASE_LABELS[value] ?? String(value??'');
@@ -151,11 +155,11 @@ export const pregnancyLabel = value => PREGNANCY_LABELS[value] ?? String(value??
 /** If the user leaves the translated label untouched, preserve the machine ID.
  * A newly typed Korean label is either mapped to a known ID or saved verbatim.
  */
-export function preferenceIdFromEdit(text, previousId='') {
+export function preferenceIdFromEdit(text, previousId='', previousLabel='') {
   const edited=String(text??'').trim().slice(0,80);
   if (!edited) return '';
   const previous=String(previousId??'').trim();
-  if (edited===preferenceLabel(previous)) return previous;
+  if (edited===preferenceLabel(previous) || edited===String(previousLabel??'').trim()) return previous;
   if (Object.hasOwn(PREFERENCE_LABELS, edited.toLowerCase())) return edited.toLowerCase();
   const lookup=Object.entries(PREFERENCE_LABELS).find(([,label])=>label===edited);
   return lookup?.[0] ?? edited;
