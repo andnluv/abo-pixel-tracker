@@ -14,7 +14,7 @@ const stringFields=['anatomyDetail','inseminationOrgan','pheromoneScent','contac
 export const PROFILE_SYSTEM = `You analyze two ADULT fictional character descriptions for an ABO SillyTavern profile setup. Return ONLY a JSON object (no markdown):
 {"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"short source evidence"},"secondary":null,"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","level":"liked","reason":"explicit source"}],"latent":[{"id":"some_interest","reason":"characterization evidence"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
 Every field may be omitted or null when not supported. For populated fields use {"value":...,"basis":"explicit|suggested","reason":"..."}. Sex=male|female|nonbinary|unknown; secondary=alpha|beta|omega|unknown; anatomy=combined|vaginal_only|male_only|female_only|female_alpha_combined|custom. Other six descriptive fields must be concise strings. gestate/impregnate/menstruationEnabled/cycleEnabled are booleans.
-Explicit facts in sources must be distinguished from characterization-based guesses. Never infer sex, secondary gender, anatomy, or sexual position from a stereotype. Never create a preference as CONFIRMED unless explicitly stated. Recommend around five latent/interest tags when genuinely supported; up to five maximum. If weak evidence, use only one meaningful interest and exploration attitude open|reserved|curious; do not fabricate. Preference tags are neutral snake_case strings, not graphic text; topics can include exhibitionism, embarrassment, humiliation, power_exchange, sensory_play and other card-grounded interests. For USER, only treat the persona's own words as confirmed; do not infer consent, decisions, or acts from assistant narration. This is a PROPOSAL, never an instruction to change actual state.`;
+Explicit facts in sources must be distinguished from characterization-based guesses. Never infer sex, secondary gender, anatomy, or sexual position from a stereotype. Never create a preference as CONFIRMED unless explicitly stated. Offer 3-5 editable latent preference CANDIDATES for BOTH char and user. Prefer evidence-grounded suggestions; if insufficient evidence, return general neutral OPTIONAL candidates instead of claiming to know a preference. Do not claim user interests as confirmed from personality alone. Use source:"optional" for generic candidates and source:"suggested" for character-grounded interests. No more than five latent tags per role. Preference tags are neutral snake_case strings, not graphic text; topics can include exhibitionism, embarrassment, humiliation, power_exchange, sensory_play and other card-grounded interests. For USER, only treat the persona's own words as confirmed; do not infer consent, decisions, or acts from assistant narration. This is a PROPOSAL, never an instruction to change actual state.`;
 export function anatomyDefault(sex,secondary){
  if(sex==='male'&&secondary==='omega')return 'combined';
  if(sex==='female'&&secondary==='alpha')return 'female_alpha_combined';
@@ -28,19 +28,49 @@ export function anatomyChoices(sex,secondary){
  return [[anatomyDefault(sex,secondary),'기본 신체 유형'],['custom','사용자 정의']];
 }
 const clean=s=>String(s??'').trim().slice(0,220);
+// These are generic selectable labels, not inferred or confirmed preferences.
+export const OPTION_CANDIDATES=Object.freeze([
+ ['gentle_touch','부드러운 접촉'],['verbal_teasing','언어적 도발'],
+ ['sensory_play','감각 플레이'],['praise','칭찬'],['roleplay','역할극'],
+ ['power_exchange','주도권 교환'],['physical_closeness','밀착 접촉'],
+ ['embarrassment','수치심'],['exhibitionism','노출'],['humiliation','굴욕'],
+ ['restraint','구속'],['aftercare','사후 돌봄']
+]);
+const idClean=value=>clean(value).slice(0,80).replace(/[^\p{L}\p{N}_ -]/gu,'');
+function supplementCandidates(latent,confirmed,min=3){
+ const seen=new Set([...latent,...confirmed].map(x=>x.id.toLowerCase()));
+ for(const [id] of OPTION_CANDIDATES){
+  if(latent.length>=min)break;
+  if(seen.has(id))continue;
+  latent.push({id,level:'latent',reason:'일반 선택 후보 · 카드/페르소나에서 확인된 취향이 아님',source:'optional',checked:false});
+  seen.add(id);
+ }
+ return latent;
+}
+
 const uniquePrefs=(values,limit,kind)=>{
  const out=[],seen=new Set();
  for(const item of Array.isArray(values)?values:[]){
-  const id=clean(typeof item==='string'?item:item?.id).slice(0,80).replace(/[^\p{L}\p{N}_ -]/gu,'');
+  const id=idClean(typeof item==='string'?item:item?.id);
   if(!id||seen.has(id.toLowerCase()))continue;
   seen.add(id.toLowerCase());
-  out.push({id,level:kind==='confirmed'&&['liked','strongly_liked','disliked','restricted'].includes(item?.level)?item.level:kind==='confirmed'?'liked':'latent',reason:clean(item?.reason).slice(0,150),checked:kind==='confirmed'});
+  out.push({id,source:item?.source==='optional'?'optional':'suggested',level:kind==='confirmed'&&['liked','strongly_liked','disliked','restricted'].includes(item?.level)?item.level:kind==='confirmed'?'liked':'latent',reason:clean(item?.reason).slice(0,150),checked:kind==='confirmed'});
   if(out.length>=limit)break;
  }
  return out;
 };
 export function normalizeSetupProposal(result,chatId){
- const obj=typeof result==='string'?JSON.parse(result.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/i,'')):result;
+ let obj=result;
+ if(typeof result==='string'){
+  const data=result.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/i,'').trim();
+  if(!data)throw new Error('분석 모델이 빈 응답을 반환했습니다. 연결/출력 토큰 설정을 확인하세요.');
+  const begin=data.indexOf('{'),end=data.lastIndexOf('}');
+  if(begin<0||end<begin)throw new Error('분석 JSON이 완성되지 않았습니다. 출력 길이 제한 또는 모델 형식을 확인하세요.');
+  try{obj=JSON.parse(data.slice(begin,end+1));}
+  catch(e){throw new Error('분석 JSON을 해석하지 못했습니다. 출력이 중간에 끊겼을 수 있습니다.',{cause:e});}
+ }
+ if(!obj||typeof obj!=='object'||Array.isArray(obj))throw new Error('초기 분석 응답이 올바른 JSON 객체가 아닙니다.');
+
  const roles={};
  for(const role of ['char','user']){
   const raw=obj?.[role]||{},fields=[];
@@ -54,7 +84,9 @@ export function normalizeSetupProposal(result,chatId){
    fields.push({key,label,value,basis:entry.basis==='explicit'?'explicit':'suggested',reason:clean(entry.reason).slice(0,150),checked:entry.basis==='explicit'});
   }
   const preferences=raw.preferences||{};
-  roles[role]={fields,confirmed:uniquePrefs(preferences.confirmed,25,'confirmed'),latent:uniquePrefs(preferences.latent,5,'latent'),attitude:['open','reserved','curious'].includes(preferences.attitude)?preferences.attitude:'curious',useAttitude:false};
+  const confirmed=uniquePrefs(preferences.confirmed,25,'confirmed');
+  const latent=supplementCandidates(uniquePrefs(preferences.latent,5,'latent').filter(x=>!confirmed.some(y=>y.id===x.id)),confirmed);
+  roles[role]={fields,confirmed,latent,attitude:['open','reserved','curious'].includes(preferences.attitude)?preferences.attitude:'curious',useAttitude:false};
  }
  return {chatId,createdAt:Date.now(),roles};
 }
@@ -69,6 +101,6 @@ export function mergeSelectedPreferences(existing,proposal){
   const pos=latent.findIndex(x=>x.id===p.id);if(pos>=0)latent.splice(pos,1);
   confirmed.push({id:p.id,level:p.level,source:'user_approved_setup',locked:true,evidence:['setup']});
  }
- for(const p of proposal?.latent||[])if(p.checked&&p.id&&!has(p.id))latent.push({id:p.id,level:'latent',source:'user_approved_setup',evidence:[]});
+ for(const p of proposal?.latent||[])if(p.checked&&p.id&&!has(p.id))latent.push({id:p.id,level:'latent',source:p.source==='custom'?'user_added_setup':'user_approved_setup',evidence:[]});
  return {confirmed,latent,attitude:proposal?.useAttitude?proposal.attitude:(old.attitude||'curious')};
 }

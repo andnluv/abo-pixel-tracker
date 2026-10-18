@@ -38,3 +38,12 @@ This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, 
 Resolves stale USER data when switching characters/chats or personas by reading the actual current SillyTavern persona avatar identity, name and description. Separates per-persona manual overrides and selected preferences, blocks stale in-flight setup proposals, and filters old USER-related events from another persona during replay. This does not automatically switch SillyTavern's persona; configure SillyTavern persona-to-character locks if needed. Existing chats are migrated on first refresh; back up important chats first.
 
 New **required root module**: `persona-sync.mjs`. Upload all root files when updating via GitHub.
+
+
+## v0.3.3 Saved Connection Profile compatibility fix
+
+Use the official `ConnectionManagerRequestService.validateProfile()` and `sendRequest()` without custom API classification or payload temperature override. The official request service handles Chat Completion and Text Completion (including instruct formatting). Failed profile requests show a more helpful error, and never silently fall back to the current RP connection. The analysis connection defaults to the current connection when unselected.
+
+If a saved profile reports 401/Unauthorized/Secret errors, open Connection Manager, activate and **Update** that profile while the intended provider is active, and retry. Do not share secrets. Some SillyTavern versions have a known profile `secret-id` issue.
+
+Tests are mocked unit tests; a live deployment connection test is still required.

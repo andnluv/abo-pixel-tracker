@@ -78,3 +78,24 @@ API 키는 채팅 메타데이터에 기록하지 않습니다. 수동 제안과
 - **주의:** 이 확장이 SillyTavern의 페르소나 자체를 자동 변경하지는 않습니다. 캐릭터별로 다른 페르소나를 자동 선택하려면 SillyTavern 페르소나 관리 화면의 **캐릭터 연결(잠금)**을 설정해야 합니다. 확장은 ST에서 현재 선택된 페르소나를 그대로 반영합니다.
 
 **GitHub 업데이트:** 저장소 최상위에 `index.js`, `persona-sync.mjs`(신규), `manifest.json`, `package.json` 등 ZIP 안의 파일을 업로드해 기존 파일을 교체하세요. 새 모듈이 없으면 확장이 로드되지 않습니다. SillyTavern의 확장 업데이트 후 페이지를 새로고침하고 화면 상단 버전이 `v0.3.1`인지 확인하세요.
+
+
+## v0.3.3 저장된 연결 프로필 호출 수정
+
+- 현재 연결은 성공하지만 동일한 연결을 저장 프로필로 선택하면 실패하는 경우를 개선했습니다.
+- Connection Manager의 공식 `validateProfile`/`sendRequest`를 사용하여 Chat Completion과 Text Completion을 자동 구분합니다.
+- 예전 코드의 `getContext().CONNECT_API_MAP` 의존과 별도 유형 판별을 제거했습니다.
+- Text Completion에서 시스템/사용자 메시지를 공식 서비스가 Instruct 설정으로 변환하도록 수정했습니다.
+- 프로필 요청에 강제 `temperature: 0.1`을 넣지 않아 모델 호환성을 높였습니다.
+- 실패 시 가능한 한 실제 원인과 점검 방향을 표시합니다. 저장된 프로필은 자동으로 현재 연결로 대체하지 않습니다.
+
+### 저장된 프로필이 여전히 연결되지 않으면
+
+1. 추적기 **SETTINGS → 저장된 연결 프로필**을 선택하고 **분석 연결 테스트**를 눌러주세요.
+2. 오류에 401, Unauthorized, API Key, Secret 등이 보이면 SillyTavern의 **연결 관리자(Connection Manager)**에서 해당 프로필을 **현재 API 연결로 활성화한 상태에서 Update**한 다음 재시도하세요. SillyTavern의 일부 버전에는 프로필 저장 당시 인증 정보가 다른 제공업체에 연결되는 문제가 보고되어 있습니다.
+3. 그래도 실패하면 하단 상태 메시지와 브라우저 **F12 → Console → [ABO Pixel] connection test failed** 항목의 오류 문구를 알려주세요. **API 키·secret-id 값 자체는 공유하지 마세요.**
+4. 본 배포 파일은 자동 모의 테스트를 통과했지만 실제 Vultr 서버 및 등록된 제공업체에 대해 원격 호출을 수행하지는 못했습니다.
+
+### GitHub 업로드
+
+압축 해제 후 파일과 하위 폴더를 저장소 **최상위**에 업로드하세요(`manifest.json`, `index.js`, `connection.mjs`, `profile.mjs`, `persona-sync.mjs` 포함). 기존 파일은 새 버전으로 교체해야 합니다. 업데이트 이후 SillyTavern에서 확장을 업데이트하고 **Ctrl+Shift+R**을 눌러 새로고침하세요.

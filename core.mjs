@@ -24,7 +24,7 @@ export const DRUGS = Object.freeze({
 });
 export const DEFAULT_CONFIG = Object.freeze({
   enabled:true,autoAnalyze:true,injectState:true,hideTruth:false,
-  analysisConnection:'',customApiUrl:'',customModel:'',
+  analysisConnection:'',customApiUrl:'',customModel:'',setupMaxTokens:5000,
   rate:{rise:.03,fertile:.14,peak:.30,fall:.06},
   sideEffectScale:1, windowCap:.85,
   style:'pixel',uiTheme:'auto', analysisMaxChars:4500
