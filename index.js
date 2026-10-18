@@ -5,6 +5,7 @@ import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
 import {OPTION_CANDIDATES} from './profile.mjs';
+import {preferenceLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel} from './preference-labels.mjs';
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
@@ -193,8 +194,8 @@ function renderSetup(){
  const m=meta(false);if(!m)return '';
  const draft=m.initialProposal;
  const hint='<p class="abop-muted">카드·페르소나의 확정 정보와 성격 기반 제안을 구분합니다. 체크한 항목만 실제 프로필에 적용됩니다. 수동으로 이미 고정한 항목은 보호됩니다.</p>';
- if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity)return `<section class="abop-frame"><header>◇ INITIAL PROFILE SETUP</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
- let out=`<section class="abop-frame"><header>◇ SETUP PROPOSAL <small>미적용 초안</small></header>${hint}
+ if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity)return `<section class="abop-frame"><header>◇ 초기 프로필 설정</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
+ let out=`<section class="abop-frame"><header>◇ 초기 프로필 제안 <small>미적용 초안</small></header>${hint}
  <div class="abop-actions"><button data-action="init">다시 분석</button><button data-action="discardProposal">제안 버리기</button></div></section>`;
  for(const role of ['char','user']){
   const d=draft.roles[role],own=m.overrides?.[role]||{};
@@ -210,19 +211,19 @@ function renderSetup(){
     options?`<select data-proposal-value="${role}" data-i="${i}">${choiceHTML(options,f.value)}</select>`:
     `<input type="text" data-proposal-value="${role}" data-i="${i}" value="${html(f.value)}" />`;
    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-proposal-check="${role}" data-i="${i}" ${checked?'checked':''} ${disabled?'disabled':''}/><span class="abop-sr-only">${html(f.label)} 적용</span></label>
-    <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'CARD FACT':'SUGGESTION'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
+    <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'카드 명시':'분석 제안'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
   }
   out+=`</div><h3 class="abop-setup-subtitle">친밀 성향·취향 후보 <span>최소 3개 · 자동 최대 5개</span></h3>`;
   for(const [kind,list] of [['confirmed',d.confirmed],['latent',d.latent]]){
    for(const [i,pref] of list.entries()){
-    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-pref-check="${role}" data-kind="${kind}" data-i="${i}" ${pref.checked?'checked':''}/><span class="abop-sr-only">${html(pref.id)} 적용</span></label>
-     <div class="abop-proposal-content"><div class="abop-rowhead"><b>${kind==='confirmed'?'카드 확정':pref.source==='optional'?'선택 후보':'잠재 취향'}</b><span class="abop-basis ${kind==='confirmed'?'explicit':'suggested'}">${kind==='confirmed'?'CONFIRMED':pref.source==='optional'?'OPTIONAL':pref.source==='custom'?'CUSTOM':'SUGGESTED'}</span></div>
-     <input data-pref-id="${role}" data-kind="${kind}" data-i="${i}" type="text" value="${html(pref.id)}" aria-label="취향 이름" />
+    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-pref-check="${role}" data-kind="${kind}" data-i="${i}" ${pref.checked?'checked':''}/><span class="abop-sr-only">${html(preferenceLabel(pref.id))} 적용</span></label>
+     <div class="abop-proposal-content"><div class="abop-rowhead"><b>${kind==='confirmed'?'카드 확정':pref.source==='optional'?'선택 후보':'잠재 취향'}</b><span class="abop-basis ${kind==='confirmed'?'explicit':'suggested'}">${kind==='confirmed'?'확정 제안':pref.source==='optional'?'선택 후보':pref.source==='custom'?'직접 추가':'잠재 제안'}</span></div>
+     <input data-pref-id="${role}" data-kind="${kind}" data-i="${i}" type="text" value="${html(preferenceLabel(pref.id))}" title="원본 ID: ${html(pref.id)}" aria-label="취향 이름" />
      ${kind==='confirmed'?`<select data-pref-level="${role}" data-i="${i}">${choiceHTML(LEVELS.filter(x=>x[0]!=='latent'),pref.level)}</select>`:''}
      <small>${html(pref.reason||'캐릭터의 성격·설정 기반 제안')}</small></div></div>`;
    }
   }
-  out+=`<div class="abop-pref-add"><label>후보 직접 추가<input id="abop-newpref-${role}" type="text" placeholder="예: aftercare, roleplay, 노출" maxlength="80" /></label><button data-action="addPref" data-role="${role}" type="button">+ 후보 추가</button></div><p class="abop-muted">OPTIONAL은 카드에서 판독된 취향이 아닌 선택용 일반 후보입니다. 체크하지 않으면 저장되지 않습니다.</p>`;
+  out+=`<div class="abop-pref-add"><label>후보 직접 추가<input id="abop-newpref-${role}" type="text" placeholder="예: 애프터케어, 역할극, 노출 플레이" maxlength="80" /></label><button data-action="addPref" data-role="${role}" type="button">+ 후보 추가</button></div><p class="abop-muted">선택 후보은 카드에서 판독된 취향이 아닌 선택을 돕기 위한 일반 후보입니다. 체크하지 않으면 저장되지 않습니다.</p>`;
   out+=`<div class="abop-rowhead abop-attitude"><label class="abop-check"><input type="checkbox" data-pref-attitude-check="${role}" ${d.useAttitude?'checked':''}/> 성향 적용</label>
    <select data-pref-attitude="${role}">${choiceHTML([['open','열려 있음'],['reserved','소극적임'],['curious','호기심만 있음']],d.attitude)}</select></div></section>`;
  }
@@ -254,16 +255,16 @@ function selectedSection(){
  const people=Object.entries(state.people);
  if(tab==='setup')return renderSetup();
  if(tab==='status')return `<div class="abop-people">${people.map(([id,p])=>personCard(id,p,m)).join('')}</div>
-  <section class="abop-frame"><header>◈ STORY CLOCK · EVENTS</header><p class="abop-meta">D${Math.floor(state.clockHours/24)} · ${fmt(state.clockHours%24)}h / 기록 ${state.events.length}건</p>
+  <section class="abop-frame"><header>◈ 서사 시간 · 사건</header><p class="abop-meta">D${Math.floor(state.clockHours/24)} · ${fmt(state.clockHours%24)}h / 기록 ${state.events.length}건</p>
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
   <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">D${Math.floor(e.at/24)} · ${html(e.kind)} ${html(e.person||'')}</div>`).join('')||'기록 없음'}</details></section>`;
- if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · CYCLE</header><p class="abop-title">${html(p.name)}</p><p>단계: <b>${html(p.cycle.phase)}</b></p><p>간격: ${fmt(p.cycle.intervalHours/24)}일</p><p>전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일</p><p>회복: ${fmt(p.cycle.recoveryHours)}시간</p><p>월경: ${p.menstruation.enabled?'활성':'없음/미설정'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p><p class="abop-muted">본능 행동화: ${(instinctChance(p,p.cycle.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).join(', '))}</p></section>`).join('')}</div>`;
- if(tab==='fertility')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · BIOLOGICAL TRUTH</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(p.awareness.pregnancy)}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html(p.bondWith||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ FERTILITY WINDOWS</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure">수태 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · PREFERENCES</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">태도: ${html(p.preferences.attitude)}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(x.id)} <small>[${html(x.level)}]</small></div>`).join('')||'<p>확정된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
- return `<section class="abop-frame"><header>◈ CONFIGURATION</header>
+ if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 생리 주기</header><p class="abop-title">${html(p.name)}</p><p>단계: <b>${html(cyclePhaseLabel(p.cycle.phase))}</b></p><p>간격: ${fmt(p.cycle.intervalHours/24)}일</p><p>전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일</p><p>회복: ${fmt(p.cycle.recoveryHours)}시간</p><p>월경: ${p.menstruation.enabled?'활성':'없음/미설정'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p><p class="abop-muted">본능 행동화: ${(instinctChance(p,p.cycle.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p></section>`).join('')}</div>`;
+ if(tab==='fertility')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html(p.bondWith||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·수태 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure">수태 사건 수동 기록</button></section>`;
+ if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceLabel(x.id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
+ return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
-  <label class="abop-fieldlabel">색상 테마<select data-theme-choice>${choiceHTML([['auto','시스템 설정에 맞춤'],['light','LIGHT · 밝은 테마'],['dark','DARK · 어두운 테마']],m.config.uiTheme||'auto')}</select></label>
+  <label class="abop-fieldlabel">색상 테마<select data-theme-choice>${choiceHTML([['auto','시스템 설정에 맞춤'],['light','라이트 · 밝은 테마'],['dark','다크 · 어두운 테마']],m.config.uiTheme||'auto')}</select></label>
   <p class="abop-muted">화면 대비를 높이고 산세리프 글꼴을 적용했습니다. 설정은 이 채팅에 저장됩니다.</p><hr/>
   <div class="abop-title">분석 모델 연결</div>
   <label class="abop-fieldlabel">분석에 사용할 API / 저장 연결 프로필
@@ -288,10 +289,10 @@ function personCard(id,p,m){
  <div class="abop-fields"><label>성별<select data-person="${id}" data-field="sex">${options(p.sex,[['unknown','미설정'],['male','남성'],['female','여성'],['nonbinary','기타']])}</select></label>
  <label>ABO<select data-person="${id}" data-field="secondary">${options(p.secondary,[['alpha','ALPHA'],['beta','BETA'],['omega','OMEGA']])}</select></label>
  <label>신체 유형<select data-person="${id}" data-field="anatomy">${options(p.anatomy||anatomyDefault(p.sex,p.secondary),anatomyChoices(p.sex,p.secondary))}</select></label>
- <label>러트/히트<select data-person="${id}" data-field="cycleEnabled">${options(String(p.cycle.enabled),[['true','ON'],['false','OFF']])}</select></label></div>
+ <label>러트/히트<select data-person="${id}" data-field="cycleEnabled">${options(String(p.cycle.enabled),[['true','사용'],['false','사용 안 함']])}</select></label></div>
  <div class="abop-meterlabel">컨디션 <b>${fmt(p.body.condition)}</b></div><div class="abop-meter"><i style="width:${clamp(p.body.condition,0,100)}%"></i></div>
  <div class="abop-meterlabel">페로몬 발산 <b>${fmt(p.pheromone.emission)}</b></div><div class="abop-meter mint"><i style="width:${clamp(p.pheromone.emission,0,100)}%"></i></div>
- <div class="abop-tagrow"><span>${html(p.cycle.phase)}</span><span>${html(p.secondary)}</span><span>${p.bondWith?'BOND ♥':'NO BOND'}</span></div>
+ <div class="abop-tagrow"><span>${html(cyclePhaseLabel(p.cycle.phase))}</span><span>${html(String(p.secondary||'미설정').toUpperCase())}</span><span>${p.bondWith?'결합 ♥':'미결합'}</span></div>
  <div class="abop-muted">지속 상태: ${p.medication.filter(x=>x.until>=state.clockHours).map(x=>html(x.drug)).join(', ')||'없음'}</div>
  ${p.anatomy==='custom'?`<label class="abop-fieldlabel">특수 생식 구조<textarea data-person="${id}" data-field="anatomyDetail" rows="2" placeholder="구조 설명">${html(p.anatomyDetail||'')}</textarea></label>`:''}
  ${p.sex==='female'&&p.secondary==='alpha'?`<details class="abop-advanced"><summary>여성 Alpha · 가상 수태기관</summary><label class="abop-fieldlabel">생식기관·전달 경로 설명<textarea data-person="${id}" data-field="inseminationOrgan" rows="2" placeholder="외형과 별도로 수태 능력 유지">${html(p.inseminationOrgan||'')}</textarea></label></details>`:''}
@@ -304,9 +305,9 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-stars">✦ ▣</span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.2</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
- <div class="abop-shell"><nav class="abop-nav">${[['status','STATUS','▦'],['setup','SETUP','◈'],['cycles','CYCLES','◷'],['fertility','FERTILITY','✦'],['preferences','PREFS','♥'],['settings','SETTINGS','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
- <main class="abop-main"><div class="abop-subhead"><span>◈ ${tab.toUpperCase()} / ${html(S()?.chatId?'CURRENT CHAT':'NO CHAT')}</span><span class="abop-dot">● ${working?'ANALYZING':'READY'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-stars">✦ ▣</span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.4</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','수태','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
+ <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'수태','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
 }
 function buildUI(){
@@ -323,7 +324,7 @@ async function handlePanelChange(e){
  }else if(t.dataset.proposalCheck){const field=m.initialProposal?.roles?.[t.dataset.proposalCheck]?.fields?.[Number(t.dataset.i)];if(field)field.checked=t.checked;
  }else if(t.dataset.proposalValue){const f=m.initialProposal?.roles?.[t.dataset.proposalValue]?.fields?.[Number(t.dataset.i)];if(f){f.value=typeof f.value==='boolean'?t.value==='true':t.value;}
  }else if(t.dataset.prefCheck){const pref=m.initialProposal?.roles?.[t.dataset.prefCheck]?.[t.dataset.kind]?.[Number(t.dataset.i)];if(pref)pref.checked=t.checked;
- }else if(t.dataset.prefId){const pref=m.initialProposal?.roles?.[t.dataset.prefId]?.[t.dataset.kind]?.[Number(t.dataset.i)];if(pref)pref.id=t.value.trim().slice(0,80);
+ }else if(t.dataset.prefId){const pref=m.initialProposal?.roles?.[t.dataset.prefId]?.[t.dataset.kind]?.[Number(t.dataset.i)];if(pref)pref.id=preferenceIdFromEdit(t.value,pref.id);
  }else if(t.dataset.prefLevel){const pref=m.initialProposal?.roles?.[t.dataset.prefLevel]?.confirmed?.[Number(t.dataset.i)];if(pref&&LEVELS.some(x=>x[0]===t.value))pref.level=t.value;
  }else if(t.dataset.prefAttitude){const d=m.initialProposal?.roles?.[t.dataset.prefAttitude];if(d)d.attitude=t.value;
  }else if(t.dataset.prefAttitudeCheck){const d=m.initialProposal?.roles?.[t.dataset.prefAttitudeCheck];if(d)d.useAttitude=t.checked;
@@ -363,11 +364,11 @@ async function handlePanelClick(e){
   if(!['char','user'].includes(role))return;
   const m=meta(),d=m?.initialProposal?.roles?.[role];if(!d)return;
   const input=el(`abop-newpref-${role}`);
-  const tag=String(input?.value||'').trim().slice(0,80);
+  const tag=preferenceIdFromEdit(input?.value||'');
   if(!/^[\p{L}\p{N}_ -]{2,80}$/u.test(tag))return setStatus('취향 이름은 글자·숫자·공백·밑줄로 2~80자 입력하세요');
   if([...d.confirmed,...d.latent].some(p=>p.id.toLowerCase()===tag.toLowerCase()))return setStatus('이미 제안된 취향입니다');
   d.latent.push({id:tag,level:'latent',reason:'사용자가 직접 추가한 후보',source:'custom',checked:true});
-  await persist();refresh();setStatus(`새 취향 후보 추가: ${tag}`);return;
+  await persist();refresh();setStatus(`새 취향 후보 추가: ${preferenceLabel(tag)}`);return;
  }
 
  if(act==='discardProposal'){const m=meta();m.initialProposal=null;await persist();refresh();setStatus('미적용 제안 폐기됨');return;}

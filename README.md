@@ -47,3 +47,8 @@ Use the official `ConnectionManagerRequestService.validateProfile()` and `sendRe
 If a saved profile reports 401/Unauthorized/Secret errors, open Connection Manager, activate and **Update** that profile while the intended provider is active, and retry. Do not share secrets. Some SillyTavern versions have a known profile `secret-id` issue.
 
 Tests are mocked unit tests; a live deployment connection test is still required.
+
+
+## v0.3.4 — Korean preference display strings
+
+Adds `preference-labels.mjs` to display localized labels for common preference IDs, including context-aware BDSM/NSFW terms. Existing machine IDs, preference extraction prompts, suggestions, profile merge rules, saved metadata, and world info are unchanged. Editing an unchanged translated label preserves the original ID. Replace the repository root files and include the new module before updating SillyTavern.

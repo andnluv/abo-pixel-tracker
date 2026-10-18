@@ -31,10 +31,10 @@ const clean=s=>String(s??'').trim().slice(0,220);
 // These are generic selectable labels, not inferred or confirmed preferences.
 export const OPTION_CANDIDATES=Object.freeze([
  ['gentle_touch','부드러운 접촉'],['verbal_teasing','언어적 도발'],
- ['sensory_play','감각 플레이'],['praise','칭찬'],['roleplay','역할극'],
- ['power_exchange','주도권 교환'],['physical_closeness','밀착 접촉'],
- ['embarrassment','수치심'],['exhibitionism','노출'],['humiliation','굴욕'],
- ['restraint','구속'],['aftercare','사후 돌봄']
+ ['sensory_play','감각 플레이'],['praise','칭찬 플레이'],['roleplay','역할극'],
+ ['power_exchange','권력 교환(D/s)'],['physical_closeness','밀착 접촉'],
+ ['embarrassment','수치심 플레이'],['exhibitionism','노출 플레이'],['humiliation','굴욕 플레이'],
+ ['restraint','구속 플레이'],['aftercare','사후 돌봄']
 ]);
 const idClean=value=>clean(value).slice(0,80).replace(/[^\p{L}\p{N}_ -]/gu,'');
 function supplementCandidates(latent,confirmed,min=3){
