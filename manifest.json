@@ -1,0 +1,9 @@
+{
+  "display_name": "ABO Pixel Tracker",
+  "loading_order": 70,
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Independent ABO Tracker Project",
+  "version": "0.2.0",
+  "auto_update": true
+}

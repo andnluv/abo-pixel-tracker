@@ -1,0 +1,282 @@
+{
+  "schema_version": "3.4-draft",
+  "status": "DESIGN_ONLY_NOT_EXECUTABLE",
+  "precedence": [
+    "manual_locked",
+    "explicit_character_card_or_persona",
+    "confirmed_story_event",
+    "initial_profile_default"
+  ],
+  "people": [
+    "CHAR",
+    "USER"
+  ],
+  "initial_assignments": {
+    "secondary_sex": "once_if_missing; editable; save_per_chat",
+    "omega_male_anatomy": "combined_by_default",
+    "initial_latent_preferences_min_when_supported": 2,
+    "initial_latent_preferences_max": 5,
+    "if_only_one_plausible": "one_interest_plus_exploration_attitude"
+  },
+  "compatibility": {
+    "male_alpha": [
+      "female_alpha",
+      "male_omega",
+      "female_omega",
+      "female_beta"
+    ],
+    "female_alpha": [
+      "female_alpha",
+      "male_omega",
+      "female_omega",
+      "female_beta"
+    ],
+    "male_beta": [
+      "female_beta"
+    ]
+  },
+  "male_omega_anatomies": [
+    "combined",
+    "vaginal_only",
+    "male_genital_only_A_menstrual_outlet_plus_B_rectal_linked_receptive_tract"
+  ],
+  "cycles": {
+    "omega": {
+      "onset_days": [
+        20,
+        35
+      ],
+      "prodrome_hours": [
+        6,
+        48
+      ],
+      "active_days": [
+        3,
+        7
+      ],
+      "recovery_hours": [
+        12,
+        72
+      ]
+    },
+    "alpha": {
+      "rut_onset_days": [
+        30,
+        90
+      ],
+      "rut_optional": true,
+      "active_days": [
+        1,
+        3
+      ],
+      "female_alpha_ovulation": "0_to_24_hours_before_or_after_rut"
+    },
+    "menstruation": {
+      "days": [
+        3,
+        7
+      ],
+      "after_ovulation_days": [
+        11,
+        16
+      ],
+      "male_omegas_included": true
+    },
+    "instinct_action_probability_by_phase": {
+      "quiet": 0.1,
+      "prodrome": 0.4,
+      "active": 0.75,
+      "recovery": 0.35
+    }
+  },
+  "instinct_eligibility": {
+    "approach": [
+      "alpha",
+      "beta",
+      "omega"
+    ],
+    "contact_request": [
+      "alpha",
+      "beta",
+      "omega"
+    ],
+    "protect": [
+      "alpha",
+      "beta",
+      "omega"
+    ],
+    "jealousy": [
+      "alpha",
+      "beta",
+      "omega"
+    ],
+    "territorial": [
+      "alpha",
+      "omega"
+    ],
+    "nesting": [
+      "omega"
+    ],
+    "bond_partner_seek": [
+      "alpha",
+      "omega"
+    ]
+  },
+  "pheromone": {
+    "emission": [
+      0,
+      100
+    ],
+    "sensitivity": [
+      0,
+      100
+    ],
+    "control": [
+      0,
+      100
+    ],
+    "affinity_priors": {
+      "favorable": 0.3,
+      "neutral": 0.4,
+      "conflicting": 0.2,
+      "exceptional": 0.1
+    },
+    "affinity_decision": "character_canon + physiology + personality + randomized_prior; save_directional",
+    "pressure": "clamp(pressure_strength - target_resistance + (15 if alpha_to_omega else 0), 0, 100)"
+  },
+  "bond": {
+    "permanent_mark_is_bond": true,
+    "tiered_strength": false,
+    "persists_until_death": true,
+    "effects": {
+      "partner_scent_sensitivity": 20,
+      "other_scent_sensitivity": -15,
+      "other_scent_discomfort": 15,
+      "heat_separation_stress": 15,
+      "partner_approach_pp": 8,
+      "heat_partner_search_pp": 12
+    }
+  },
+  "drugs": {
+    "baseline_tolerance": 0,
+    "tolerance_independent_of_side_effects": true,
+    "normal_licensed_tolerance_gain": 0,
+    "licensed_misuse_gain_range": [
+      6,
+      10
+    ],
+    "unlicensed_gain_range": [
+      7,
+      14
+    ],
+    "side_effect_priors": {
+      "oral_suppressant": 0.08,
+      "long_suppressant": 0.12,
+      "emergency_suppressant": 0.1,
+      "scent_blocker": 0.04,
+      "symptom_inducer": 0.15,
+      "cycle_inducer": 0.22,
+      "unlicensed_mixture": 0.4,
+      "emergency_contraceptive": 0.1
+    },
+    "long_suppressant_ovulation_suppression_success_prior": 0.9,
+    "emergency_contraception": {
+      "within_hours": 72,
+      "risk_reduction_ratio": 0.75
+    }
+  },
+  "fertility": {
+    "window": [
+      {
+        "from_hours": null,
+        "to_hours": -72,
+        "probability": 0
+      },
+      {
+        "from_hours": -72,
+        "to_hours": -48,
+        "probability": 0.03
+      },
+      {
+        "from_hours": -48,
+        "to_hours": -24,
+        "probability": 0.14
+      },
+      {
+        "from_hours": -24,
+        "to_hours": 12,
+        "probability": 0.3
+      },
+      {
+        "from_hours": 12,
+        "to_hours": 24,
+        "probability": 0.06
+      },
+      {
+        "from_hours": 24,
+        "to_hours": null,
+        "probability": 0
+      }
+    ],
+    "pair_boosts": {
+      "alpha_rut_and_omega_heat": 1.8,
+      "alpha_rut_omega_quiet": 1.4,
+      "alpha_quiet_omega_heat": 1.4,
+      "alpha_quiet_omega_quiet": 1.1,
+      "alpha_rut_alpha_rut_gestator_female_alpha": 1.1,
+      "eligible_ovulation": 1.1
+    },
+    "pair_boost_policy": "one_highest_only",
+    "requires": [
+      "compatible_roles",
+      "confirmed_penetration_into_receptive_route",
+      "confirmed_internal_deposition",
+      "fertile_interval",
+      "pregnancy_possible"
+    ],
+    "within_encounter_repeat_formula": "1 - (1 - p1) ** (1 + 0.5 * (1 - exp(-0.9 * (n-1))))",
+    "fertile_window_cumulative_cap": 0.85,
+    "roll_policy": "one_stored_roll_per_fertile_window_and_branch; no repeated rerolls"
+  },
+  "pregnancy": {
+    "term_days_center": 180,
+    "term_days_min": 150,
+    "term_days_max": 210,
+    "implantation_days": [
+      5,
+      10
+    ],
+    "additional_implantation_failure_roll": false,
+    "postpartum_recovery_days": [
+      28,
+      42
+    ],
+    "pregnancy_freezes_ordinary_heat_rut_and_menstrual_cycles": true,
+    "delivery": [
+      "natural",
+      "medical"
+    ],
+    "knowledge_separate_per_person": true
+  },
+  "preferences": {
+    "levels": [
+      "latent",
+      "liked",
+      "strongly_liked",
+      "disliked",
+      "restricted"
+    ],
+    "exploration_attitudes": [
+      "open",
+      "reserved",
+      "curious"
+    ],
+    "confirmation": "explicit_or_consistent_in_two_distinct_scenes",
+    "recent_scene_tags": 3,
+    "user_agency": "no_automatic_user_actions"
+  },
+  "source_notes": [
+    "Modelled for a fictional Omegaverse; not medical probabilities.",
+    "World Info alone does not run this spec; a separate extension must implement storage, event detection, random draws, story-clock arithmetic and reroll handling."
+  ]
+}
