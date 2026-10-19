@@ -1,8 +1,13 @@
 /* ABO Pixel Tracker 0.3.0 – independent retro UI, accessible day/night color palettes.
    Pretendard is an optional remote web font; OS sans-serif fallbacks work offline. */
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css');
-#abop-open{position:fixed;right:14px;bottom:88px;z-index:11000;cursor:pointer;color:#fff;background:#354d82;border:1px solid #c6ceef;box-shadow:inset 1px 1px #8b9dc9,3px 3px 0 #1a2947;border-radius:4px;font:700 13px/1.5 'Pretendard Variable',Pretendard,'Noto Sans KR',system-ui,sans-serif;padding:9px 13px;letter-spacing:.4px}
-#abop-open:hover{background:#49699a}
+/* Entry points live in SillyTavern's own extension menu/settings, never on top of chat. */
+#extensionsMenu #abop-extension-menu-entry{cursor:pointer;min-height:42px;align-items:center}
+#extensionsMenu #abop-extension-menu-entry:focus-visible{outline:2px solid var(--SmartThemeQuoteColor,#83cabe);outline-offset:-2px}
+#abop-extension-settings-entry{margin:12px 0;padding:12px;border:1px solid var(--SmartThemeBorderColor,#8888);border-radius:5px}
+#abop-extension-settings-entry>strong{display:block;font-size:14px;margin-bottom:4px}
+#abop-extension-settings-entry>p{margin:0 0 10px;opacity:.8;font-size:12px;line-height:1.5}
+#abop-extension-settings-entry .abop-extension-settings-open{min-height:40px;cursor:pointer;width:100%;max-width:280px}
 #abop-panel{--ab-bg:#1d2940;--ab-main:#202e46;--ab-card:#293b55;--ab-raised:#33465f;--ab-control:#213048;--ab-nav:#23354e;--ab-titlebar:#3a446a;--ab-text:#f0f5ff;--ab-heading:#fff;--ab-muted:#c4d0e0;--ab-secondary:#b6c7e2;--ab-line:#647c9c;--ab-soft-line:#49617e;--ab-mint:#93e0cf;--ab-lilac:#ccbcff;--ab-pink:#f0b7d1;--ab-button:#435d82;--ab-button-hover:#5877a3;--ab-ring:#a2eee1;--ab-footer:#273953;--ab-shadow:rgba(8,13,31,.5);--ab-meter-bg:#17243a;--ab-tag-bg:#233651;
  display:none;position:fixed;inset:0;z-index:11001;background:rgba(7,14,30,.62);padding:clamp(8px,3vw,28px);align-items:center;justify-content:center;
  font-family:'Pretendard Variable',Pretendard,'SUIT','Noto Sans KR','Apple SD Gothic Neo',system-ui,-apple-system,sans-serif!important;

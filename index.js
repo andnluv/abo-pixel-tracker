@@ -13,6 +13,7 @@ import {MAIN_TARGET,npcCanon,discoverNpcProfiles,namedTarget,sharedEvent,combine
 import {getRequestHeaders,saveSettingsDebounced} from '/script.js';
 import {extension_settings} from '/scripts/extensions.js';
 import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from './global-analysis-settings.mjs';
+import {mountExtensionLaunchers} from './menu-launcher.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
@@ -452,17 +453,35 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.14</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.16</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
 }
+function openTrackerPanel(){
+ panelOpen=true;
+ refresh();
+}
 function buildUI(){
- if(!el('abop-open')){
-  const b=document.createElement('button');b.id='abop-open';b.type='button';b.textContent='▦ ABO';b.title='그날의 사정 열기';b.addEventListener('click',()=>{panelOpen=!panelOpen;refresh();});document.body.appendChild(b);
- }
+ // Remove a surviving old floating launcher if extensions hot-reload in place.
+ el('abop-open')?.remove();
  if(!el('abop-panel')){
   const panel=document.createElement('div');panel.id='abop-panel';panel.setAttribute('role','dialog');panel.setAttribute('aria-label','그날의 사정');panel.addEventListener('click',handlePanelClick);panel.addEventListener('change',handlePanelChange);document.body.appendChild(panel);
+ }
+ const ready=()=>{
+  const result=mountExtensionLaunchers(document,openTrackerPanel);
+  return result.menu&&result.settings;
+ };
+ if(ready())return;
+ // The host may inject its extension menu after an extension script is loaded.
+ // Observe only briefly, to avoid a persistent observer during roleplay.
+ if(typeof MutationObserver==='function'){
+  const observer=new MutationObserver(()=>{if(ready())observer.disconnect();});
+  observer.observe(document.body,{childList:true,subtree:true});
+  setTimeout(()=>{observer.disconnect();ready();},15000);
+ }else{
+  setTimeout(ready,500);
+  setTimeout(ready,2000);
  }
 }
 async function handlePanelChange(e){
