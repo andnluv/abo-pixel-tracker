@@ -1,12 +1,14 @@
 import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
-import {PROFILE_SYSTEM,PROFILE_FIELDS,normalizeSetupProposal,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
+import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
 import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
 import {OPTION_CANDIDATES} from './profile.mjs';
 import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel} from './preference-labels.mjs';
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
+import {normalizeSetupOutputTokens,MIN_SETUP_OUTPUT_TOKENS,MAX_SETUP_OUTPUT_TOKENS} from './setup-options.mjs';
+import {buildProfileSetupInput} from './profile-setup-input.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
@@ -44,7 +46,7 @@ async function analysisRequest(systemPrompt,prompt,maxTokens=2200){
  const config=meta()?.config||DEFAULT_CONFIG, chosen=connectionValue(config);
  if(!chosen){
   if(typeof S().generateRaw!=='function')throw new Error('현재 SillyTavern 연결의 generateRaw가 없습니다');
-  return extractedText(await S().generateRaw({systemPrompt,prompt}));
+  return extractedText(await S().generateRaw({systemPrompt,prompt,responseLength:maxTokens}));
  }
  if(chosen.startsWith('profile:')){
   const id=chosen.slice(8);
@@ -73,7 +75,7 @@ function meta(create=true){
  }
  return c.chatMetadata[STORAGE]||null;
 }
-async function persist(){try{await S().saveMetadata?.();}catch(e){console.warn('[ABO Pixel] Metadata saving failed',e);setStatus('저장 실패: 개발자 콘솔 확인');}}
+async function persist(){try{if(typeof S().saveMetadata!=='function')throw new Error('SillyTavern 메타데이터 저장 기능이 없습니다');await S().saveMetadata();return true;}catch(e){console.warn('[ABO Pixel] Metadata saving failed',e);setStatus('저장 실패: 개발자 콘솔 확인');return false;}}
 function readCanon(){
  const c=S(), character=c.characters?.[c.characterId]||c.characters?.[c.this_chid]||{};
  const cd=character.data||{};
@@ -157,19 +159,24 @@ async function initialProfileAnalyze(){
  working=true;tab='setup';setStatus('CHAR·USER 프로필 제안 생성 중…');render();
  const chatId=S().chatId, originalPersona=m.userPersonaIdentity;
  try{
-  const setupInput=JSON.stringify({char:m.canon.char,user:m.canon.user});
-  const setupMax=Math.min(12000,Math.max(2500,Number(m.config.setupMaxTokens)||5000));
+  const setupInput=buildProfileSetupInput(m.canon,m.overrides);
+  const setupMax=normalizeSetupOutputTokens(m.config.setupMaxTokens);
   let draft;
   try{
    const result=await analysisRequest(PROFILE_SYSTEM,setupInput,setupMax);
    draft=normalizeSetupProposal(result,chatId);
   }catch(firstError){
-   // Retry once only for empty/truncated/malformed JSON. Never change APIs silently.
-   if(!/JSON|응답|출력|텍스트/i.test(String(firstError?.message)))throw firstError;
-   setStatus('JSON 형식이 불완전하여 간결한 출력으로 한 번 재시도 중…');render();
-   const brief='Output all descriptive values, reasons and candidate labels in natural Korean; keep English machine IDs and enums. Keep each reason under 75 Korean characters. Compact valid JSON only, no markdown. At least 3 latent candidates per role; mark non-evidence options source:"optional". '+PROFILE_SYSTEM;
-   const retry=await analysisRequest(brief,setupInput,setupMax);
-   draft=normalizeSetupProposal(retry,chatId);
+   // Only malformed model output gets a format retry; API failures must retain their actual cause.
+   if(!(firstError instanceof SetupJsonFormatError))throw firstError;
+   setStatus('초기 분석 응답 형식 오류 · 간결한 JSON으로 1회 재시도 중…');render();
+   const brief='FORMAT RETRY: Preserve the same role fields, confirmed/latent evidence rules and candidate counts. Output a COMPLETE valid JSON object only; no markdown or trailing prose. Write values, reasons and candidate labels in natural Korean, keep machine IDs and enums in English. Keep each reason under 65 Korean characters. Omit unsupported fields rather than adding filler.\n'+PROFILE_SYSTEM;
+   try{
+    const retry=await analysisRequest(brief,setupInput,setupMax);
+    draft=normalizeSetupProposal(retry,chatId);
+   }catch(secondError){
+    if(secondError instanceof SetupJsonFormatError)throw new Error(`초기 분석 JSON이 2회 연속 불완전합니다. 실제 모델 출력 한도와 분석 연결을 확인하세요. (재시도: ${secondError.message})`,{cause:secondError});
+    throw secondError;
+   }
   }
   syncCanon();
   if(S().chatId!==chatId||m.userPersonaIdentity!==originalPersona){setStatus('채팅/페르소나 변경으로 분석 결과 폐기');return;}
@@ -277,7 +284,8 @@ function selectedSection(){
     <p class="abop-muted">키는 채팅·설정·내보내기에 저장하지 않습니다. 새로고침하면 다시 입력해야 합니다. 직접 API 호출은 제공 업체의 브라우저 CORS 허용이 필요하며, 지원하지 않으면 저장된 연결 프로필을 사용하세요.</p>
     <button data-action="clearKey">임시 API 키 지우기</button>
   </div>`:''}
-  <label class="abop-fieldlabel">초기 셋업 최대 출력 토큰<input type="number" min="2500" max="12000" step="500" data-custom="setupMaxTokens" value="${html(m.config.setupMaxTokens||5000)}" /></label>
+  <label class="abop-fieldlabel">초기 셋업 최대 출력 토큰<input type="number" min="${MIN_SETUP_OUTPUT_TOKENS}" max="${MAX_SETUP_OUTPUT_TOKENS}" step="1" data-custom="setupMaxTokens" value="${html(normalizeSetupOutputTokens(m.config.setupMaxTokens))}" /></label>
+  <p class="abop-muted">모델·제공업체의 실제 최대 출력 토큰은 다를 수 있습니다. 현재 연결 사용 시에는 SillyTavern의 현재 연결에 응답 길이 값을 전달합니다.</p>
   <button data-action="refreshProfiles">프로필 목록 새로고침</button><button data-action="testConnection">분석 연결 테스트</button>
   <hr/><label class="abop-check"><input type="checkbox" data-config="enabled" ${m.config.enabled?'checked':''}/> 확장 활성화</label><label class="abop-check"><input type="checkbox" data-config="autoAnalyze" ${m.config.autoAnalyze?'checked':''}/> 응답마다 별도 분석 호출 (추가 API 비용 발생 가능)</label><label class="abop-check"><input type="checkbox" data-config="injectState" ${m.config.injectState?'checked':''}/> 다음 RP에 내부 상태 주입</label><label class="abop-check"><input type="checkbox" data-config="hideTruth" ${m.config.hideTruth?'checked':''}/> 화면에서 임신 결과 숨기기 (모델 주입에는 유지)</label><hr/><div class="abop-title">기본 수태 확률 (%)</div>${Object.entries(m.config.rate).map(([k,v])=>`<label class="abop-number">${html(k)} <input type="number" min="0" max="100" step="1" data-rate="${k}" value="${fmt(v*100)}" /></label>`).join('')}<hr/><button data-action="openSetup">초기 프로필 셋업 열기</button><button data-action="reanalyze">최근 응답 재분석</button><button data-action="export">채팅 데이터 내보내기</button><p class="abop-muted">수동 변경은 자동 판독보다 우선합니다. 선택된 응답에 속한 분석 사건만 적용됩니다.</p></section>`;
 }
@@ -290,6 +298,7 @@ function personCard(id,p,m){
  <label>ABO<select data-person="${id}" data-field="secondary">${options(p.secondary,[['alpha','ALPHA'],['beta','BETA'],['omega','OMEGA']])}</select></label>
  <label>신체 유형<select data-person="${id}" data-field="anatomy">${options(p.anatomy||anatomyDefault(p.sex,p.secondary),anatomyChoices(p.sex,p.secondary))}</select></label>
  <label>러트/히트<select data-person="${id}" data-field="cycleEnabled">${options(String(p.cycle.enabled),[['true','사용'],['false','사용 안 함']])}</select></label></div>
+ <div class="abop-savebar"><small>항목 변경 시 자동 저장됩니다. 자동 배정된 ABO도 확정할 수 있습니다.</small><button type="button" data-action="saveABO" data-role="${id}">ABO 선택 저장</button></div>
  <div class="abop-meterlabel">컨디션 <b>${fmt(p.body.condition)}</b></div><div class="abop-meter"><i style="width:${clamp(p.body.condition,0,100)}%"></i></div>
  <div class="abop-meterlabel">페로몬 발산 <b>${fmt(p.pheromone.emission)}</b></div><div class="abop-meter mint"><i style="width:${clamp(p.pheromone.emission,0,100)}%"></i></div>
  <div class="abop-tagrow"><span>${html(cyclePhaseLabel(p.cycle.phase))}</span><span>${html(String(p.secondary||'미설정').toUpperCase())}</span><span>${p.bondWith?'결합 ♥':'미결합'}</span></div>
@@ -305,7 +314,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.6</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.8</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','수태','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'수태','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -342,13 +351,14 @@ async function handlePanelChange(e){
  }else if(t.hasAttribute('data-connection')){
   m.config.analysisConnection=t.value;
  }else if(t.dataset.custom){
-  m.config[t.dataset.custom]=t.dataset.custom==='setupMaxTokens'?Math.min(12000,Math.max(2500,Number(t.value)||5000)):t.value.trim();
+  m.config[t.dataset.custom]=t.dataset.custom==='setupMaxTokens'?normalizeSetupOutputTokens(t.value):t.value.trim();
  }else if(t.hasAttribute('data-secret')){
   // Never write keys to metadata, world info, backups, or console logs.
   sessionApiKey=t.value.trim();t.value='';setStatus(sessionApiKey?'임시 API 키가 메모리에 등록됨':'임시 API 키가 비어 있음');
  }else if(t.dataset.rate){m.config.rate[t.dataset.rate]=clamp(Number(t.value)/100,0,1);
  }else return;
- await persist();refresh();
+ const saved=await persist();refresh();
+ if(t.dataset.person)setStatus(saved?`${t.dataset.person.toUpperCase()} ${t.dataset.field==='secondary'?'ABO':'설정'} 변경 자동 저장 완료`:'채팅 설정 저장 실패 · 콘솔 확인');
 }
 async function addManualEvents(events){
  const m=meta(),src=sourceForCurrent();syncCanon();if(!m||!src)return setStatus('먼저 대화를 시작하세요');
@@ -364,6 +374,13 @@ async function handlePanelClick(e){
  if(act==='close'){panelOpen=false;render();return;}
  if(act==='themeCycle'){const m=meta();m.config.uiTheme=m.config.uiTheme==='dark'?'light':'dark';await persist();refresh();return;}
  if(act==='openSetup'){tab='setup';render();return;}
+ if(act==='saveABO'){
+  const role=t.dataset.role;if(!['char','user'].includes(role))return;
+  const m=meta();const selected=el('abop-panel')?.querySelector(`select[data-person="${role}"][data-field="secondary"]`)?.value;
+  if(!['alpha','beta','omega'].includes(selected))return setStatus('ABO 선택값이 올바르지 않습니다');
+  m.overrides[role]??={};m.overrides[role].secondary=selected;
+  const saved=await persist();refresh();setStatus(saved?`${role.toUpperCase()} ABO ${selected.toUpperCase()} 선택 저장 완료`:'ABO 설정 저장 실패 · 콘솔 확인');return;
+ }
  if(act==='applyProposal'){await applyProfileProposal();return;}
  if(act==='addPref'){
   const role=t.dataset.role;

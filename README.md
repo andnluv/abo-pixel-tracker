@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.6 (Beta)
+# ABO Pixel Tracker v0.3.8 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -72,3 +72,19 @@ The menstrual/reproductive cycle tracking concept was inspired in part by **Koof
 https://github.com/koofer-zia/sillytavern-life-state
 
 ABO Pixel Tracker is implemented separately; it does not include or modify Koofer-zia's original code, prompts, or assets.
+
+
+## v0.3.8 — Setup token length & JSON retry
+
+- Initial setup output token value now accepts 512–65,536, subject to model/provider limits.
+- The current SillyTavern connection now receives `responseLength` on `generateRaw()`; saved profiles and custom endpoints keep their request routing.
+- Retries occur only for invalid/empty/truncated profile JSON, not arbitrary API errors. A second JSON failure produces a specific error.
+- No changes to preference candidate ranking, proposal counts, IDs, or stored state.
+
+
+## v0.3.8 — Manual ABO selections and pheromone scent proposals
+
+- Changing CHAR/USER ABO in the STATUS panel saves to chat metadata immediately. Use **ABO 선택 저장** to explicitly confirm the displayed classification, including seeded defaults that already match the desired value.
+- The initial profile analysis now receives explicit STATUS-panel choices. When Alpha/Omega is manually selected but no established pheromone is present, the model is instructed to propose a tailored Korean-language scent, unchecked by default.
+- Do not invent pheromone scents for manually selected Beta or unspecified characters. Preserve existing user-fixed scents and prefer explicit source facts. Suggestions are only stored after the user checks them and applies the proposal.
+- The v0.3.7 token/JSON fixes, preference candidate counts, inference thresholds, and internal IDs remain unchanged.

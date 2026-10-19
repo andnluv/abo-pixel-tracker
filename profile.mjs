@@ -26,6 +26,12 @@ const PROFILE_KOREAN_VOCABULARY_NOTE = `\nKorean vocabulary reference (examples,
 export const PROFILE_SYSTEM = `You analyze two ADULT fictional character descriptions for an ABO SillyTavern profile setup. Return ONLY a JSON object (no markdown):
 LANGUAGE RULE: Write all human-readable analysis prose in fluent, natural KOREAN. This includes ALL descriptive field values (pheromoneScent, contactStyle, vocalStyle, speechStyle, anatomyDetail, inseminationOrgan), every field reason, every confirmed/latent preference reason, and every preference label. Do not copy full English source descriptions into the result as analysis. Refer faithfully to the source, including original proper nouns or brief verbatim quotations only when necessary. Do NOT translate or alter machine-readable JSON keys, enum values, preference IDs, or quoted original proper nouns.
 {"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"카드에 남성이라고 명시됨"},"secondary":null,"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","label":"언어적 도발","level":"liked","reason":"한국어로 작성한 카드 근거"}],"latent":[{"id":"some_interest","label":"문맥에 맞춘 한국어 명칭","reason":"한국어로 작성한 성격 기반 근거"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
+EXPLICIT SETUP SELECTIONS AND PHEROMONE SCENT:
+- Each char/user may include setupSelections from the initial STATUS panel. These values are MANUAL choices, NOT guesses, and take precedence over missing or conflicting secondary/sex facts in the original card. The UI already saves these choices; never silently change alpha/omega/beta to another type based on card omissions or stereotypes.
+- When setupSelections.secondary is "alpha" or "omega" and there is no established pheromoneScent (neither an explicit pheromone description in the source nor a nonempty setupSelections.pheromoneScent), INCLUDE a pheromoneScent field with a NEW, concise, plausible, Korean-language fragrance proposal. Build its scent notes from this character's individual characterization, manner, sensory imagery and atmosphere rather than defaulting to gender/ABO stereotypes. Use {"value":"한국어 향 조합","basis":"suggested","reason":"캐릭터의 어떤 분위기·묘사에서 향을 착안했는지"}. Do not mark a newly invented scent as explicit, and leave it unselected so the user can opt in.
+- An ambient smell (such as coffee or wood in the card) is not automatically an established pheromone. It may INSPIRE a suggested pheromone but should not be mislabeled as card-explicit pheromone. If pheromone scent IS explicitly defined in the original source, return that as explicit instead. If setupSelections.pheromoneScent is nonempty, honor it and do not manufacture an alternative.
+- For manual beta selection, do NOT invent a pheromone scent unless one is explicitly given in the source. A random/seeded ABO type not present in setupSelections is not a manual selection and must not by itself trigger this scent proposal requirement.
+- The scent is a PROFILE PROPOSAL only. Never mutate the live profile or automatically approve an inferred scent.
 VOICE & SPEECH STYLE ANALYSIS (adult relationship / NSFW-capable profile):
 - vocalStyle (발성 성향) is primarily about *nonverbal and acoustic responses during closeness, tension, and potentially NSFW intimacy*, not a recap of everyday speaking manners. If the source supports it, propose a plausible pattern of breathing, sounds/moans, held-back vs freely expressed voice, pitch, volume, breathiness, and how audible reactions shift with excitement, embarrassment, vulnerability, or loss of composure. Ordinary voice timbre may be mentioned as a baseline but should NOT be the entire output. Differentiate the person's own vocal response from a preference for hearing someone else's voice.
 - speechStyle (언어 성향) describes *what and how the person speaks*: honorific vs casual register, address terms, teasing, requests, reassurance, questions, commands, sentence structure, and potential changes in intimate or NSFW situations. Polite speech or sentence endings belong here, NOT in vocalStyle. Include relationship-specific speech tendencies when grounded in the source; do not simply repeat their everyday manner of speech.
@@ -78,17 +84,20 @@ const uniquePrefs=(values,limit,kind)=>{
  }
  return out;
 };
+export class SetupJsonFormatError extends Error {
+ constructor(message,options){super(message,options);this.name='SetupJsonFormatError';}
+}
 export function normalizeSetupProposal(result,chatId){
  let obj=result;
  if(typeof result==='string'){
   const data=result.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/i,'').trim();
-  if(!data)throw new Error('분석 모델이 빈 응답을 반환했습니다. 연결/출력 토큰 설정을 확인하세요.');
+  if(!data)throw new SetupJsonFormatError('분석 모델이 빈 응답을 반환했습니다. 연결/출력 토큰 설정을 확인하세요.');
   const begin=data.indexOf('{'),end=data.lastIndexOf('}');
-  if(begin<0||end<begin)throw new Error('분석 JSON이 완성되지 않았습니다. 출력 길이 제한 또는 모델 형식을 확인하세요.');
+  if(begin<0||end<begin)throw new SetupJsonFormatError('분석 JSON이 완성되지 않았습니다. 출력 길이 제한 또는 모델 형식을 확인하세요.');
   try{obj=JSON.parse(data.slice(begin,end+1));}
-  catch(e){throw new Error('분석 JSON을 해석하지 못했습니다. 출력이 중간에 끊겼을 수 있습니다.',{cause:e});}
+  catch(e){throw new SetupJsonFormatError('분석 JSON을 해석하지 못했습니다. 출력이 중간에 끊겼을 수 있습니다.',{cause:e});}
  }
- if(!obj||typeof obj!=='object'||Array.isArray(obj))throw new Error('초기 분석 응답이 올바른 JSON 객체가 아닙니다.');
+ if(!obj||typeof obj!=='object'||Array.isArray(obj))throw new SetupJsonFormatError('초기 분석 응답이 올바른 JSON 객체가 아닙니다.');
 
  const roles={};
  for(const role of ['char','user']){
