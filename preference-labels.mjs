@@ -128,7 +128,7 @@ export const INSTINCT_LABELS = Object.freeze({
 });
 export const PREGNANCY_LABELS = Object.freeze({
   "none": "해당 없음",
-  "conception_pending": "수태 진행",
+  "conception_pending": "임신 여부 판정 중",
   "pregnant_unaware": "임신 · 미인지",
   "pregnant_suspected": "임신 · 의심",
   "pregnant_confirmed": "임신 · 확인",

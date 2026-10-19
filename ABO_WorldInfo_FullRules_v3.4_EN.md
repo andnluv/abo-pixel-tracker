@@ -261,7 +261,7 @@ Pregnancy suspends the ordinary heat/rut and menstrual cycle of the gestating ch
 
 ```text
 [ACCELERATED GESTATION — FICTIONAL]
-One gestation normally lasts 180 story-days, with an individually sampled and fixed term from 150–210 days (+/-30) at conception. For a 180-day example, early D0–60, middle D61–120, late D121–180; scale stage boundaries for individual terms. Symptom onset, strength, scent change, appetite/sleep, mobility, and late-term strain vary per individual; no instant full symptom package at conception.
+One gestation normally lasts 150 story-days, with an individually sampled and fixed term from 120–180 days (+/-30) at conception. For a 150-day example, early D0–50, middle D51–100, late D101–150; scale stage boundaries for individual terms. Symptom onset, strength, scent change, appetite/sleep, mobility, and late-term strain vary per individual; no instant full symptom package at conception.
 Both natural birth and medically assisted delivery are available as the gestating person's choice, including male Omega variants under this setting's fictional adaptive reproductive anatomy. Do not impose a delivery route based solely on sexual position. Special events such as prematurity, miscarriage, and multiple gestation use individually configurable, normally low probabilities, and distinct recorded triggers, not arbitrary dramatic events.
 ```
 

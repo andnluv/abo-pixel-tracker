@@ -105,3 +105,10 @@
 #abop-panel .abop-npc-controls details{border-top:1px dashed var(--ab-line);padding-top:10px}
 #abop-panel .abop-npc-controls textarea{width:100%;min-height:95px;resize:vertical}
 #abop-panel .abop-npc button:disabled{cursor:default;opacity:.55}
+
+/* v0.3.11: keep the compact title and additional event controls readable on phones. */
+#abop-panel .abop-top strong{min-width:0;overflow-wrap:anywhere}
+#abop-panel .abop-top strong small{font-size:10px;font-weight:600;opacity:.8}
+#abop-panel .abop-actions select[id^="abop-drug-"]{max-width:200px;flex:1 1 160px}
+#abop-panel .abop-actions select[id^="abop-drug-mode-"]{max-width:150px;flex:1 1 120px}
+@media(max-width:420px){#abop-panel .abop-top strong small{display:none}#abop-panel .abop-top strong{font-size:12px}}

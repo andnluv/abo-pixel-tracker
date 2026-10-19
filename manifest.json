@@ -1,9 +1,9 @@
 {
-  "display_name": "ABO Pixel Tracker",
+  "display_name": "그날의 사정",
   "loading_order": 70,
   "js": "index.js",
   "css": "style.css",
   "author": "Independent ABO Tracker Project",
-  "version": "0.3.9",
+  "version": "0.3.12",
   "auto_update": true
 }

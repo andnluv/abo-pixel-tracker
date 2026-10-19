@@ -43,7 +43,7 @@ test('exact user-provided Korean UI text and version appear in the extension',()
   const index=readFileSync(new URL('../index.js',import.meta.url),'utf8');
   assert.ok(index.includes('잠재 후보 3~5개 · 확정 후보 별도'));
   assert.ok(index.includes('선택을 돕기 위해 제공되는 일반 후보입니다. 체크 시에만 적용됩니다.'));
-  assert.ok(index.includes('v0.3.9'));
+  assert.ok(index.includes('v0.3.12'));
 });
 
 
@@ -69,6 +69,6 @@ test('titlebar uses a single CSS pixel emblem instead of mixed Unicode glyphs',(
   assert.match(index,/<span class="abop-brandmark" aria-hidden="true"><\/span>/);
   assert.doesNotMatch(index,/✦ ▣/);
   assert.match(css,/\.abop-brandmark::before/);
-  assert.match(index,/ABO \/ RELATIONSHIP TRACKER/);
-  assert.match(index,/v0\.3\.9/);
+  assert.match(index,/그날의 사정/);
+  assert.match(index,/v0\.3\.12/);
 });

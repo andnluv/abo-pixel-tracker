@@ -239,9 +239,9 @@
     "roll_policy": "one_stored_roll_per_fertile_window_and_branch; no repeated rerolls"
   },
   "pregnancy": {
-    "term_days_center": 180,
-    "term_days_min": 150,
-    "term_days_max": 210,
+    "term_days_center": 150,
+    "term_days_min": 120,
+    "term_days_max": 180,
     "implantation_days": [
       5,
       10

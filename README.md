@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.9 (Beta)
+# 그날의 사정 v0.3.12 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -11,7 +11,24 @@ This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, 
 1. If this is a new installation, use **SillyTavern → Extensions → Install Extension**, with the public repository URL.
 2. If an earlier version is installed, upload/commit the new files to the existing repository, keeping the same path and folder names. **Replace** the old files rather than creating a nested folder.
 3. Run the extension updater in SillyTavern and refresh the page (hard refresh if styles are cached). If the updater does not detect the release, reload the extension from SillyTavern's extension manager.
-4. Import `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json` separately if not already imported. **No need to reimport World Info** merely to update this extension.
+4. Import `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json` separately if not already imported. If an earlier v3.4 is imported, **replace its PREG-02 entry** with the updated 150-day reference text to keep world rules aligned; avoid duplicate imports.
+
+## v0.3.12 — Revert day selector · 120–180 day gestation (default 150)
+
+The manual time control is restored to its prior hours-only form; automatic time progression from explicit story evidence is unchanged. Fictional gestation is nominally 150 story-days, with a deterministic, individually selected due date in the 120–180 day range. Both the simulation and the bundled World Info PREG-02 were updated. **If you already imported the earlier v3.4 World Info, update/replace its PREG-02 entry** (do not import a second duplicate World Info without removing the old one). Existing stored pregnancy due dates are recalculated from chat events on replay; back up active chats before upgrading.
+
+## v0.3.11 — Pregnancy switch, fictional medication mechanics
+
+The display name is now **그날의 사정**, while the repository and chat storage key remain unchanged for upgrades. The per-chat pregnancy ON/OFF switch disables conception calculations and pregnancy state injection when OFF, but does not delete raw events; turning ON replays the retained history. Back up a long-running chat before changing this setting.
+
+A fictional `oral_contraceptive` medication event reduces qualifying exposure risk during its active 24h window (85% default), with editable efficacy. Emergency contraceptive reduction (75% default within 72 hours) and long suppressants' ovulation suppression chance (90% default) are now configurable; both preserve the original deterministic roll. Side-effect results have reproducible fictional symptom labels independent of medication tolerance and can be reviewed under Cycles. Confirmed doses can be recorded manually. The continuity prompt now includes confirmed vs latent preferences and recent scene tags to discourage generic repetitive roleplay while preserving user agency. Single selected-NPC tracking remains; simultaneous multi-partner pregnancy calculations are not implemented.
+
+All rates and medication effects are **fictional world-building values**, not medical information. No external writing or proprietary source code has been copied. Run `npm run check && npm test`; integration testing in a real SillyTavern instance is still pending.
+
+## v0.3.10 — Pregnancy tab wording
+
+- The UI tab is now labelled `임신` instead of `수태`; related screen copy has been clarified.
+- No calculation, event schema, persistence, or NPC tracking logic was modified.
 
 ## v0.3.9 — One active NPC in multi-character / narrator cards
 

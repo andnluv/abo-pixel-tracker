@@ -1,6 +1,6 @@
 /* The classifier is intentionally read-only. All random decisions occur in core.mjs. */
 const ALLOWED=['time_advance','heat_start','rut_start','ovulation','bond','medication','exposure','pregnancy_reveal','delivery','pregnancy_end','preference','scene'];
-const DRUGS=['oral_suppressant','long_suppressant','emergency_suppressant','scent_blocker','symptom_inducer','cycle_inducer','unlicensed_mixture','emergency_contraceptive'];
+const DRUGS=['oral_suppressant','long_suppressant','emergency_suppressant','scent_blocker','symptom_inducer','cycle_inducer','unlicensed_mixture','emergency_contraceptive','oral_contraceptive'];
 const PREF_LEVELS=['latent','liked','strongly_liked','disliked','restricted'];
 export const ANALYZER_SYSTEM=`You extract confirmed events for a fictional ABO roleplay tracker. You are a conservative factual parser, not a narrator.
 Output only one valid JSON object: {"events": [ ... ]}. Never invent missing facts or add hypothetical events.

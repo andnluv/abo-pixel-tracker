@@ -144,7 +144,7 @@ function renderNpcTarget(){
  <label class="abop-fieldlabel">다른 이름·호칭 (쉼표로 구분)<input id="abop-npc-aliases" placeholder="영문명, 별명" /></label>
  <label class="abop-fieldlabel">프로필 설명 (선택)<textarea id="abop-npc-description" rows="6" placeholder="월드 인포에 없거나 직접 수정하고 싶은 설정을 입력하세요"></textarea></label>
  <button type="button" data-action="addNpc">NPC 추가하고 추적</button></details></div>`:''}
- <p class="abop-muted">현재 채팅의 메타데이터에 NPC별 설정·분석 기록을 저장합니다. 월드 인포 원본은 수정하지 않습니다.</p></section>`;
+ <p class="abop-muted">현재 채팅의 메타데이터에 NPC별 설정·분석 기록을 저장합니다. 월드 인포 원본은 수정하지 않습니다. 한 번에 선택한 NPC 1명만 추적하며, 여러 상대의 임신·관계 사건을 합산하는 기능은 아직 지원하지 않습니다.</p></section>`;
 }
 async function persist(){try{if(typeof S().saveMetadata!=='function')throw new Error('SillyTavern 메타데이터 저장 기능이 없습니다');await S().saveMetadata();return true;}catch(e){console.warn('[ABO Pixel] Metadata saving failed',e);setStatus('저장 실패: 개발자 콘솔 확인');return false;}}
 function readCanon(){
@@ -359,8 +359,15 @@ function selectedSection(){
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
   <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">D${Math.floor(e.at/24)} · ${html(e.kind)} ${html(e.person||'')}</div>`).join('')||'기록 없음'}</details></section>`;
- if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 생리 주기</header><p class="abop-title">${html(p.name)}</p><p>단계: <b>${html(cyclePhaseLabel(p.cycle.phase))}</b></p><p>간격: ${fmt(p.cycle.intervalHours/24)}일</p><p>전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일</p><p>회복: ${fmt(p.cycle.recoveryHours)}시간</p><p>월경: ${p.menstruation.enabled?'활성':'없음/미설정'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p><p class="abop-muted">본능 행동화: ${(instinctChance(p,p.cycle.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p></section>`).join('')}</div>`;
- if(tab==='fertility')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html(p.bondWith||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·수태 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure">수태 사건 수동 기록</button></section>`;
+ if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 생리 주기</header><p class="abop-title">${html(p.name)}</p><p>단계: <b>${html(cyclePhaseLabel(p.cycle.phase))}</b></p><p>간격: ${fmt(p.cycle.intervalHours/24)}일</p><p>전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일</p><p>회복: ${fmt(p.cycle.recoveryHours)}시간</p><p>월경: ${p.menstruation.enabled?'활성':'없음/미설정'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p><p class="abop-muted">본능 행동화: ${(instinctChance(p,p.cycle.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p>
+ <details><summary>약물 · 부작용 · 내성</summary><p class="abop-muted">복용 ${p.medication.length}건 · 부작용 기록 ${p.adverse.length}건</p>
+ ${(p.adverse||[]).slice(-4).map(x=>`<div class="abop-line">${html(x.drug)} · ${html((x.symptoms||[x.type||'기타']).join(', '))}${Number.isFinite(x.until)&&x.until<state.clockHours?' (경과)':''}</div>`).join('')||'<p class="abop-muted">부작용 기록 없음</p>'}
+ <p class="abop-muted">내성: ${html(Object.entries(p.tolerance||{}).map(([k,v])=>`${k} ${v}`).join(' · ')||'기록 없음')}</p>
+ <div class="abop-actions"><select id="abop-drug-${id}" aria-label="${id} 약물 종류">${[['oral_suppressant','경구 억제제'],['long_suppressant','장기 억제제'],['emergency_suppressant','응급 억제제'],['scent_blocker','페로몬 차단제'],['oral_contraceptive','일반 피임약'],['emergency_contraceptive','응급 피임약'],['symptom_inducer','증상 유도제'],['cycle_inducer','주기 유도제'],['unlicensed_mixture','비승인 혼합약물']].map(([v,label])=>`<option value="${v}">${label}</option>`).join('')}</select>
+ <select id="abop-drug-mode-${id}" aria-label="${id} 사용 방식"><option value="normal">정상 사용</option><option value="misuse">오남용</option><option value="unlicensed">비승인 사용</option></select>
+ <button data-action="recordMedication" data-role="${id}">확인된 복용 기록</button></div>
+ <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
+ if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html(p.bondWith||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
  if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
@@ -380,7 +387,15 @@ function selectedSection(){
   <label class="abop-fieldlabel">초기 셋업 최대 출력 토큰<input type="number" min="${MIN_SETUP_OUTPUT_TOKENS}" max="${MAX_SETUP_OUTPUT_TOKENS}" step="1" data-custom="setupMaxTokens" value="${html(normalizeSetupOutputTokens(m.config.setupMaxTokens))}" /></label>
   <p class="abop-muted">모델·제공업체의 실제 최대 출력 토큰은 다를 수 있습니다. 현재 연결 사용 시에는 SillyTavern의 현재 연결에 응답 길이 값을 전달합니다.</p>
   <button data-action="refreshProfiles">프로필 목록 새로고침</button><button data-action="testConnection">분석 연결 테스트</button>
-  <hr/><label class="abop-check"><input type="checkbox" data-config="enabled" ${m.config.enabled?'checked':''}/> 확장 활성화</label><label class="abop-check"><input type="checkbox" data-config="autoAnalyze" ${m.config.autoAnalyze?'checked':''}/> 응답마다 별도 분석 호출 (추가 API 비용 발생 가능)</label><label class="abop-check"><input type="checkbox" data-config="injectState" ${m.config.injectState?'checked':''}/> 다음 RP에 내부 상태 주입</label><label class="abop-check"><input type="checkbox" data-config="hideTruth" ${m.config.hideTruth?'checked':''}/> 화면에서 임신 결과 숨기기 (모델 주입에는 유지)</label><hr/><div class="abop-title">기본 수태 확률 (%)</div>${Object.entries(m.config.rate).map(([k,v])=>`<label class="abop-number">${html(k)} <input type="number" min="0" max="100" step="1" data-rate="${k}" value="${fmt(v*100)}" /></label>`).join('')}<hr/><button data-action="openSetup">초기 프로필 셋업 열기</button><button data-action="reanalyze">최근 응답 재분석</button><button data-action="export">채팅 데이터 내보내기</button><p class="abop-muted">수동 변경은 자동 판독보다 우선합니다. 선택된 응답에 속한 분석 사건만 적용됩니다.</p></section>`;
+  <hr/><label class="abop-check"><input type="checkbox" data-config="enabled" ${m.config.enabled?'checked':''}/> 확장 활성화</label><label class="abop-check"><input type="checkbox" data-config="autoAnalyze" ${m.config.autoAnalyze?'checked':''}/> 응답마다 별도 분석 호출 (추가 API 비용 발생 가능)</label><label class="abop-check"><input type="checkbox" data-config="injectState" ${m.config.injectState?'checked':''}/> 다음 RP에 내부 상태 주입</label><label class="abop-check"><input type="checkbox" data-config="hideTruth" ${m.config.hideTruth?'checked':''}/> 화면에서 임신 결과 숨기기 (모델 주입에는 유지)</label>
+  <label class="abop-check"><input type="checkbox" data-config="pregnancyEnabled" ${m.config.pregnancyEnabled!==false?'checked':''}/> 임신 시뮬레이션 ON/OFF (채팅별)</label>
+  <p class="abop-muted">OFF: 새 임신 확률·진행·RP 주입을 계산하지 않습니다. 사건 기록은 유지하므로 다시 ON이면 기존 사건까지 결정적 난수로 재계산됩니다. 이미 진행 중인 채팅에서는 먼저 백업을 권장합니다.</p>
+  <hr/><div class="abop-title">기본 임신 확률 (%)</div>${Object.entries(m.config.rate).map(([k,v])=>`<label class="abop-number">${html(k)} <input type="number" min="0" max="100" step="1" data-rate="${k}" value="${fmt(v*100)}" /></label>`).join('')}<hr/><div class="abop-title">약물 시뮬레이션 확률 (%)</div>
+  <p class="abop-muted">세계관 설정용 가상 확률입니다. 현실 의학에서 사용하는 실제 약물의 효과·복용법을 의미하지 않습니다.</p>
+  ${[['oralContraceptiveEffectiveness','일반 피임약 유효 중 임신 위험 감소'],['emergencyContraceptiveReduction','72시간 이내 응급 피임 위험 감소'],['longSuppressantSuccess','장기 억제제 배란 억제 성공']].map(([key,label])=>`<label class="abop-number">${label} <input type="number" min="0" max="100" step="1" data-probability="${key}" value="${fmt((m.config[key]??DEFAULT_CONFIG[key])*100)}" /></label>`).join('')}
+  <label class="abop-number">전체 부작용 발생 확률 배율 (%) <input type="number" min="0" max="300" step="5" data-probability="sideEffectScale" value="${fmt((m.config.sideEffectScale??1)*100)}" /></label>
+  <p class="abop-muted">약물별 기본 부작용 확률: 경구 억제제 8% · 장기 억제제 12% · 응급 억제제 10% · 페로몬 차단제 4% · 일반 피임약 8% · 응급 피임약 10%. 배율은 개별 약물의 부작용 확률에만 적용됩니다.</p>
+  <hr/><button data-action="openSetup">초기 프로필 셋업 열기</button><button data-action="reanalyze">최근 응답 재분석</button><button data-action="export">채팅 데이터 내보내기</button><p class="abop-muted">수동 변경은 자동 판독보다 우선합니다. 선택된 응답에 속한 분석 사건만 적용됩니다.</p></section>`;
 }
 function personCard(id,p,m){
  const own=effectiveOverrides(m)?.[id]||{};
@@ -397,7 +412,7 @@ function personCard(id,p,m){
  <div class="abop-tagrow"><span>${html(cyclePhaseLabel(p.cycle.phase))}</span><span>${html(String(p.secondary||'미설정').toUpperCase())}</span><span>${p.bondWith?'결합 ♥':'미결합'}</span></div>
  <div class="abop-muted">지속 상태: ${p.medication.filter(x=>x.until>=state.clockHours).map(x=>html(x.drug)).join(', ')||'없음'}</div>
  ${p.anatomy==='custom'?`<label class="abop-fieldlabel">특수 생식 구조<textarea data-person="${id}" data-field="anatomyDetail" rows="2" placeholder="구조 설명">${html(p.anatomyDetail||'')}</textarea></label>`:''}
- ${p.sex==='female'&&p.secondary==='alpha'?`<details class="abop-advanced"><summary>여성 Alpha · 가상 수태기관</summary><label class="abop-fieldlabel">생식기관·전달 경로 설명<textarea data-person="${id}" data-field="inseminationOrgan" rows="2" placeholder="외형과 별도로 수태 능력 유지">${html(p.inseminationOrgan||'')}</textarea></label></details>`:''}
+ ${p.sex==='female'&&p.secondary==='alpha'?`<details class="abop-advanced"><summary>여성 Alpha · 가상 생식기관</summary><label class="abop-fieldlabel">생식기관·전달 경로 설명<textarea data-person="${id}" data-field="inseminationOrgan" rows="2" placeholder="외형과 별도로 임신 능력 유지">${html(p.inseminationOrgan||'')}</textarea></label></details>`:''}
  </section>`;
 }
 function render(){
@@ -407,17 +422,17 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.9</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
- <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','수태','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
- <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'수태','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.12</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
+ <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
 }
 function buildUI(){
  if(!el('abop-open')){
-  const b=document.createElement('button');b.id='abop-open';b.type='button';b.textContent='▦ ABO';b.title='ABO Pixel Tracker 열기';b.addEventListener('click',()=>{panelOpen=!panelOpen;refresh();});document.body.appendChild(b);
+  const b=document.createElement('button');b.id='abop-open';b.type='button';b.textContent='▦ ABO';b.title='그날의 사정 열기';b.addEventListener('click',()=>{panelOpen=!panelOpen;refresh();});document.body.appendChild(b);
  }
  if(!el('abop-panel')){
-  const panel=document.createElement('div');panel.id='abop-panel';panel.setAttribute('role','dialog');panel.setAttribute('aria-label','ABO Pixel Tracker');panel.addEventListener('click',handlePanelClick);panel.addEventListener('change',handlePanelChange);document.body.appendChild(panel);
+  const panel=document.createElement('div');panel.id='abop-panel';panel.setAttribute('role','dialog');panel.setAttribute('aria-label','그날의 사정');panel.addEventListener('click',handlePanelClick);panel.addEventListener('change',handlePanelChange);document.body.appendChild(panel);
  }
 }
 async function handlePanelChange(e){
@@ -450,6 +465,7 @@ async function handlePanelChange(e){
   // Never write keys to metadata, world info, backups, or console logs.
   sessionApiKey=t.value.trim();t.value='';setStatus(sessionApiKey?'임시 API 키가 메모리에 등록됨':'임시 API 키가 비어 있음');
  }else if(t.dataset.rate){m.config.rate[t.dataset.rate]=clamp(Number(t.value)/100,0,1);
+ }else if(t.dataset.probability){const key=t.dataset.probability;if(!['oralContraceptiveEffectiveness','emergencyContraceptiveReduction','longSuppressantSuccess','sideEffectScale'].includes(key))return;const n=Number(t.value),max=key==='sideEffectScale'?300:100;if(!Number.isFinite(n)||n<0||n>max)return setStatus(`확률 설정 범위: 0~${max}%`);m.config[key]=n/100;
  }else return;
  const saved=await persist();refresh();
  if(t.dataset.person)setStatus(saved?`${t.dataset.person.toUpperCase()} ${t.dataset.field==='secondary'?'ABO':'설정'} 변경 자동 저장 완료`:'채팅 설정 저장 실패 · 콘솔 확인');
@@ -527,7 +543,15 @@ async function handlePanelClick(e){
   if(!Number.isFinite(n)||n<=0||n>8760)return setStatus('0보다 크고 8760 이하인 시간 입력');
   await addManualEvents([{kind:'time_advance',hours:n}]);setStatus(`시간 +${n}h 반영`);return;
  }
+ if(act==='recordMedication'){
+  const role=t.dataset.role;if(!['char','user'].includes(role))return;
+  const drug=el(`abop-drug-${role}`)?.value,mode=el(`abop-drug-mode-${role}`)?.value;
+  if(!['oral_suppressant','long_suppressant','emergency_suppressant','scent_blocker','oral_contraceptive','emergency_contraceptive','symptom_inducer','cycle_inducer','unlicensed_mixture'].includes(drug))return;
+  if(!['normal','misuse','unlicensed'].includes(mode))return;
+  await addManualEvents([{kind:'medication',person:role,drug,use_mode:mode}]);setStatus(`${role.toUpperCase()} 약물 복용 사건 기록 완료`);return;
+ }
  if(act==='exposure'){
+  if(meta()?.config?.pregnancyEnabled===false)return setStatus('임신 기능이 꺼져 있습니다. 설정에서 ON으로 변경하세요');
   const gestator=window.prompt('임신 대상: char / user (취소 가능)','char');if(!['char','user'].includes(gestator))return;
   const donor=gestator==='char'?'user':'char';
   const n=Number(window.prompt('이 장면에서 확인된 생식기관 내부 사정 횟수 (1~30)','1'));

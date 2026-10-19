@@ -20,14 +20,28 @@ export const DRUGS = Object.freeze({
   symptom_inducer:{adverse:.15,duration:[12,36]},
   cycle_inducer:{adverse:.22,duration:[12,72]},
   unlicensed_mixture:{adverse:.40,duration:[4,72]},
-  emergency_contraceptive:{adverse:.10,duration:[0,0]}
+  emergency_contraceptive:{adverse:.10,duration:[0,0]},
+  oral_contraceptive:{adverse:.08,duration:[24,24]}
 });
 export const DEFAULT_CONFIG = Object.freeze({
-  enabled:true,autoAnalyze:true,injectState:true,hideTruth:false,
+  enabled:true,autoAnalyze:true,injectState:true,hideTruth:false,pregnancyEnabled:true,
   analysisConnection:'',customApiUrl:'',customModel:'',setupMaxTokens:5000,
   rate:{rise:.03,fertile:.14,peak:.30,fall:.06},
   sideEffectScale:1, windowCap:.85,
+  oralContraceptiveEffectiveness:.85,emergencyContraceptiveReduction:.75,longSuppressantSuccess:.90,
   style:'pixel',uiTheme:'auto', analysisMaxChars:4500
+});
+// Symptoms are fictional narrative defaults, never clinical claims.
+export const ADVERSE_SYMPTOMS = Object.freeze({
+ oral_suppressant:['두통','어지러움','일시적인 페로몬 감각 둔화'],
+ long_suppressant:['피로','체온 변화','일시적인 주기 불규칙'],
+ emergency_suppressant:['메스꺼움','몸의 열감','일시적인 감각 과민'],
+ scent_blocker:['후각 둔화','피부 건조감','잔향의 불안정'],
+ symptom_inducer:['발열감','심박 상승','초조함'],
+ cycle_inducer:['복부 불편감','극심한 피로','불규칙한 페로몬 발산'],
+ unlicensed_mixture:['급격한 체온 변화','현기증','페로몬 조절 불안정'],
+ emergency_contraceptive:['메스꺼움','피로','일시적인 주기 변화'],
+ oral_contraceptive:['두통','메스꺼움','가벼운 피로']
 });
 const CLAMP=(n,lo,hi)=>Math.min(hi,Math.max(lo,n));
 export const clamp=CLAMP;
@@ -72,7 +86,7 @@ export function person(id,name,seed,canon={}){
 export function initialState(seed,canon={},config={}){
  return {schema:VERSION,seed,clockHours:0,
  people:{char:person('char',canon.char?.name||'CHAR',canon.char?.id?`${seed}:${canon.char.id}`:seed,canon.char),user:person('user',canon.user?.name||'USER',seed,canon.user)},
- bonds:[],affinity:{},windows:{},events:[],alerts:[],config:{...DEFAULT_CONFIG,...config}};
+ bonds:[],affinity:{},windows:{},events:[],alerts:[],config:{...DEFAULT_CONFIG,...config,rate:{...DEFAULT_CONFIG.rate,...(config.rate||{})}}};
 }
 export function areCompatible(source,target){
  if(source===target)return false;
@@ -133,7 +147,16 @@ export function pairMultiplier(donor,gestator,clock){
  if(donor.secondary==='alpha'&&gestator.secondary==='alpha'&&donor.sex==='female'&&gestator.sex==='female'&&dp==='active'&&gp==='active')return 1.1;
  return 1.1; // ovulation-stage small elevation, never stacks with other multipliers
 }
+export function activeContraceptionFactor(state,gestator,time=state.clockHours){
+ const p=state.people[gestator];if(!p)return 1;
+ const effectiveness=CLAMP(Number(state.config.oralContraceptiveEffectiveness??.85),0,1);
+ // Only a confirmed NORMAL dose with an active simulated protection interval counts.
+ // Doses mentioned in dialogue but not confirmed are never added to medication[].
+ return p.medication.some(m=>m.drug==='oral_contraceptive'&&m.mode==='normal'&&m.at<=time&&m.until>time)
+  ? 1-effectiveness : 1;
+}
 export function eventChance(state,event){
+ if(state.config.pregnancyEnabled===false)return {p:0,reason:'pregnancy_disabled'};
  const g=state.people[event.gestator],d=state.people[event.donor];
  if(!g||!d||!areCompatible(d,g)||event.penetration!==true||event.deposition!==true)return {p:0,reason:'gate_failed'};
  if(g.pregnancy.status!=='none')return {p:0,reason:'already_pregnant'};
@@ -142,7 +165,7 @@ export function eventChance(state,event){
  const base=rangeProbability(offset,state.config);
  if(!base)return {p:0,reason:Number.isFinite(ov)?'outside_fertile_window':'ovulation_unknown'};
  const personF=CLAMP(Number(event.gestatorFertility)||1,0,3)*CLAMP(Number(event.donorFertility)||1,0,3);
- const contraceptive=CLAMP(Number.isFinite(event.contraceptiveFactor)?event.contraceptiveFactor:1,0,1);
+ const contraceptive=CLAMP(Number.isFinite(event.contraceptiveFactor)?event.contraceptiveFactor:1,0,1)*activeContraceptionFactor(state,event.gestator);
  if(g.cycle.ovulationBlockedUntil>=state.clockHours)return {p:0,reason:'ovulation_suppressed'};
  const p=CLAMP(base*pairMultiplier(d,g,state.clockHours)*personF*contraceptive,0,1);
  return {p:encounterChance(p,event.depositions||1),reason:'qualified',ov};
@@ -161,7 +184,11 @@ export function menstruationPhase(p,time,seed){
  const luteal=pickInt(seed,`${p.id}:luteal`,11,16)*24;
  return time>=ov+luteal&&time<ov+luteal+p.menstruation.days*24?'menstruating':'not_menstruating';
 }
-export function sideEffectChance(drug,conf={}){return CLAMP((DRUGS[drug]?.adverse||0)*(conf.sideEffectScale||1),0,1);}
+export function sideEffectChance(drug,conf={}){return CLAMP((DRUGS[drug]?.adverse||0)*(conf.sideEffectScale??1),0,1);}
+export function adverseSymptoms(seed,event){
+ const list=ADVERSE_SYMPTOMS[event.drug]||[];
+ return list.length?[list[pickInt(seed,`symptom:${event.id}:${event.drug}`,0,list.length-1)]]:[];
+}
 export function toleranceChange(seed,event){
  if(event.use_mode==='normal')return 0;
  const [lo,hi]=event.use_mode==='misuse'?[6,10]:event.use_mode==='unlicensed'?[7,14]:[0,0];
@@ -181,12 +208,14 @@ function updateCycles(state){
  for(const p of Object.values(state.people)){
   p.cycle.phase=phaseForPerson(p,state.clockHours);
   p.menstruation.phase=menstruationPhase(p,state.clockHours,state.seed);
+  if(state.config.pregnancyEnabled===false)continue;
   if(p.pregnancy.status==='conception_pending'&&state.clockHours>=p.pregnancy.implantAt){p.pregnancy.status='pregnant_unaware';}
   if(p.pregnancy.status==='postpartum'&&state.clockHours>=p.cycle.anchorHour){p.pregnancy.status='ended';}
   if(p.pregnancy.status.startsWith('pregnant')&&Number.isFinite(p.pregnancy.dueAt)&&state.clockHours>=p.pregnancy.dueAt){p.pregnancy.status='due';}
  }
 }
 function updateWindow(state,gestator,ovulation){
+ if(state.config.pregnancyEnabled===false)return;
  const key=`${gestator}:${ovulation}`;
  const w=state.windows[key]||{id:key,gestator,ovulation,roll:dice(state.seed,state.people[gestator]?.identityId?`fertile:${state.people[gestator].identityId}:${key}`:`fertile:${key}`),exposures:[],total:0};
  state.windows[key]=w;
@@ -199,7 +228,7 @@ function updateWindow(state,gestator,ovulation){
    let rolling=0,early=w.exposures.at(-1)?.t??state.clockHours;
    for(const exposure of w.exposures){rolling=1-(1-rolling)*(1-CLAMP(exposure.p*exposure.emergencyFactor,0,1));if(w.roll<CLAMP(rolling,0,state.config.windowCap??.85)){early=exposure.t;break;}}
    const implantation=pickInt(state.seed,`implant:${key}`,5,10)*24;
-   const term=pickInt(state.seed,`term:${key}`,150,210)*24;
+   const term=pickInt(state.seed,`term:${key}`,120,180)*24;
    p.pregnancy={status:state.clockHours>=early+implantation?'pregnant_unaware':'conception_pending',conceivedAt:early,implantAt:early+implantation,dueAt:early+term,deliveryAt:null};
    state.alerts.push(`${p.name}: internally confirmed conception (character awareness remains separate)`);
  }
@@ -255,8 +284,8 @@ export function applyEvent(state,input){
   const adverse=dice(state.seed,`adverse:${e.id}`)<sideEffectChance(e.drug,state.config);
   const duration=pickInt(state.seed,`duration:${e.id}`,...DRUGS[e.drug].duration);
   p.medication.push({id:e.id,drug:e.drug,mode:e.use_mode||'normal',at:state.clockHours,until:state.clockHours+duration,adverse});
-  if(adverse)p.adverse.push({id:e.id,drug:e.drug,at:state.clockHours});
-  if(e.drug==='long_suppressant'&&dice(state.seed,`ovulation:block:${e.id}`)<.9){p.cycle.ovulationHour=null;p.cycle.ovulationBlockedUntil=state.clockHours+duration;}
+  if(adverse)p.adverse.push({id:e.id,drug:e.drug,at:state.clockHours,until:state.clockHours+Math.max(12,Math.min(duration||24,72)),type:'general',symptoms:adverseSymptoms(state.seed,e)});
+  if(e.drug==='long_suppressant'&&dice(state.seed,`ovulation:block:${e.id}`)<CLAMP(Number(state.config.longSuppressantSuccess??.90),0,1)){p.cycle.ovulationHour=null;p.cycle.ovulationBlockedUntil=state.clockHours+duration;}
   const reboundChances={oral_suppressant:.02,long_suppressant:.05,unlicensed_mixture:.25};
   const drugRisk=reboundChances[e.drug]??0;
   if(drugRisk&&dice(state.seed,`induced-adverse:${e.id}`)<drugRisk){
@@ -270,7 +299,7 @@ export function applyEvent(state,input){
   if(e.drug==='emergency_contraceptive'){
    for(const w of Object.values(state.windows)){
     if(w.gestator!==e.person)continue;
-    for(const x of w.exposures)if(state.clockHours-x.t<=72&&state.clockHours>=x.t)x.emergencyFactor=.25;
+    for(const x of w.exposures)if(state.clockHours-x.t<=72&&state.clockHours>=x.t)x.emergencyFactor=1-CLAMP(Number(state.config.emergencyContraceptiveReduction??.75),0,1);
     updateWindow(state,e.person,w.ovulation);
    }
   }
@@ -284,18 +313,20 @@ export function applyEvent(state,input){
   break;
  }
  case 'pregnancy_reveal':{
+  if(state.config.pregnancyEnabled===false)break;
   if(p&&['char','user'].includes(e.knower)&&['suspected','confirmed'].includes(e.level)){
    state.people[e.knower].awareness.pregnancy=e.level;
   }
   break;
  }
  case 'delivery':{
+  if(state.config.pregnancyEnabled===false)break;
   if(p&&p.pregnancy.status!=='none'){
    p.pregnancy.status='postpartum';p.pregnancy.deliveryAt=state.clockHours;
    p.cycle.anchorHour=state.clockHours+pickInt(state.seed,`recover:${e.id}`,28,42)*24;
   }break;
  }
- case 'pregnancy_end':if(p){p.pregnancy.status='ended';p.cycle.anchorHour=state.clockHours+pickInt(state.seed,`recover:${e.id}`,28,42)*24;}break;
+ case 'pregnancy_end':if(p&&state.config.pregnancyEnabled!==false){p.pregnancy.status='ended';p.cycle.anchorHour=state.clockHours+pickInt(state.seed,`recover:${e.id}`,28,42)*24;}break;
  case 'preference':if(p)applyPreference(p,e);break;
  case 'scene':if(p){
    const fields=['posture','contact','vocal','speech'];for(const f of fields)if(typeof e[f]==='string')p.scene[f]=e[f].slice(0,90);
@@ -339,14 +370,22 @@ export function sortedRecords(chat,ledger){
 }
 export function formatPrompt(s,hideTruth=false){
  const out=['[ABO TRACKER — CONTINUITY / NOT CHARACTER KNOWLEDGE]',`Story clock: D${Math.floor(s.clockHours/24)} ${Math.floor(s.clockHours%24)}h. Treat time as story time, not real time.`];
+ if(s.config.pregnancyEnabled===false)out.push('PREGNANCY TRACKING OFF for this chat: do not introduce tracker-generated pregnancy, conception outcomes, pregnancy symptoms or due dates.');
  for(const [id,p] of Object.entries(s.people)){
   out.push(`${id.toUpperCase()} ${p.name}: sex=${p.sex}; ABO=${p.secondary}; anatomy=${p.anatomy||'not specified'}; cycle=${p.cycle.phase}; menses=${p.menstruation.phase}; bond=${p.bondWith||'none'}; symptoms: condition=${p.body.condition}, sensitivity=${p.body.sensitivity}, stress=${p.body.stress}; recent meds=${p.medication.filter(m=>m.until>=s.clockHours).map(m=>m.drug).join(',')||'none'}.`);
   if(p.anatomyDetail||p.inseminationOrgan)out.push(`${id.toUpperCase()} anatomical notes=${(p.anatomyDetail||'').slice(0,240)}; insemination anatomy=${(p.inseminationOrgan||'').slice(0,240)}.`);
   const prs=p.presentation||{};if(Object.values(prs).some(Boolean))out.push(`${id.toUpperCase()} interaction profile: scent=${prs.pheromoneScent||'unknown'}; contact=${prs.contactStyle||'unknown'}; voice=${prs.vocalStyle||'unknown'}; speech=${prs.speechStyle||'unknown'}.`);
+  const pref=p.preferences||{};
+  const fmtPref=x=>`${String(x.label||x.id||'').slice(0,55)} (${x.level||'latent'})`;
+  if(pref.confirmed?.length||pref.latent?.length)out.push(`${id.toUpperCase()} established preferences=${(pref.confirmed||[]).slice(0,8).map(fmtPref).join(', ')||'none'}; latent possibilities (NOT confirmed or mandated)=${(pref.latent||[]).slice(0,5).map(fmtPref).join(', ')||'none'}.`);
+  const symptoms=(p.adverse||[]).filter(x=>x.until===undefined||x.until>=s.clockHours).slice(-3);
+  if(symptoms.length)out.push(`${id.toUpperCase()} observed fictional medication reactions=${symptoms.map(x=>(x.symptoms||[x.type||'unspecified']).join('/')).join(', ')}. These are NOT proof of tolerance or pregnancy.`);
+  if(p.recentScenes?.length)out.push(`${id.toUpperCase()} recent scenes (continuity only)=${p.recentScenes.slice(-3).map(x=>(x.play||[]).slice(0,3).join('/')||x.contact||x.vocal||'scene').join(' > ')}.`);
   const pr=p.pregnancy;
+  if(s.config.pregnancyEnabled===false)continue;
   if(!hideTruth&&pr.status!=='none')out.push(`INTERNAL PHYSIOLOGY for ${p.name}: pregnancy=${pr.status}, elapsed=${pr.conceivedAt===null?'?':Math.floor((s.clockHours-pr.conceivedAt)/24)} days. Do not disclose this as knowledge unless in-story discovery established. Subject awareness=${p.awareness.pregnancy}.`);
   else out.push(`${p.name} awareness of pregnancy=${p.awareness.pregnancy}.`);
  }
- out.push('Character knowledge ≠ objective physiology. Only let symptoms emerge at plausible story intervals; no sudden omniscience. Do not script USER decisions, dialogue, bodily consent, or actions. World Info/card canon overrides unknown defaults. This is continuity data, not an instruction to trigger events.');
+ out.push('Character knowledge ≠ objective physiology. Respect established boundaries and user agency. Vary dialogue, contact, and vocal responses according to individual character personality and explicit preferences rather than repeating a universal script. Latent preferences are hypotheses, not consent, confirmed facts, or required play. Do not script USER decisions, dialogue, bodily consent, or actions. World Info/card canon overrides unknown defaults. This is continuity data, not an instruction to trigger events.');
  return out.join('\n');
 }
