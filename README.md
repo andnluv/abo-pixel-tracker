@@ -1,3 +1,6 @@
+### v0.3.17: Mobile panel layout fix
+Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
+
 # 그날의 사정 v0.3.16 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).

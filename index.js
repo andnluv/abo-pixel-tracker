@@ -446,28 +446,56 @@ function personCard(id,p,m){
  ${p.sex==='female'&&p.secondary==='alpha'?`<details class="abop-advanced"><summary>여성 Alpha · 가상 생식기관</summary><label class="abop-fieldlabel">생식기관·전달 경로 설명<textarea data-person="${id}" data-field="inseminationOrgan" rows="2" placeholder="외형과 별도로 임신 능력 유지">${html(p.inseminationOrgan||'')}</textarea></label></details>`:''}
  </section>`;
 }
+/** Keep the mobile dialog wholly inside the *visible* viewport. On iOS Safari,
+ * 100vh can extend behind browser controls; visualViewport tracks that space. */
+function syncTrackerViewport(){
+ const node=el('abop-panel');if(!node)return;
+ const v=window.visualViewport;
+ const width=v?.width||window.innerWidth;
+ const height=v?.height||window.innerHeight;
+ const left=v?.offsetLeft||0;
+ const top=v?.offsetTop||0;
+ node.style.setProperty('--abop-viewport-width',`${Math.max(1,Math.round(width))}px`);
+ node.style.setProperty('--abop-viewport-height',`${Math.max(1,Math.round(height))}px`);
+ node.style.setProperty('--abop-viewport-left',`${Math.max(0,Math.round(left))}px`);
+ node.style.setProperty('--abop-viewport-top',`${Math.max(0,Math.round(top))}px`);
+}
 function render(){
  const root=el('abop-panel');if(!root)return;
  const previousScroll=root.querySelector('.abop-main')?.scrollTop||0;
  root.classList.toggle('abop-visible',panelOpen);
+ if(panelOpen)syncTrackerViewport();
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.16</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.17</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
- <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
+ <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
 }
 function openTrackerPanel(){
  panelOpen=true;
+ syncTrackerViewport();
  refresh();
+ requestAnimationFrame(()=>el('abop-panel')?.querySelector('[data-action="close"]')?.focus({preventScroll:true}));
 }
 function buildUI(){
  // Remove a surviving old floating launcher if extensions hot-reload in place.
  el('abop-open')?.remove();
  if(!el('abop-panel')){
-  const panel=document.createElement('div');panel.id='abop-panel';panel.setAttribute('role','dialog');panel.setAttribute('aria-label','그날의 사정');panel.addEventListener('click',handlePanelClick);panel.addEventListener('change',handlePanelChange);document.body.appendChild(panel);
+  const panel=document.createElement('div');panel.id='abop-panel';panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','그날의 사정');panel.addEventListener('click',handlePanelClick);panel.addEventListener('change',handlePanelChange);document.body.appendChild(panel);
  }
+ if(!window.__abopViewportListenerInstalled){
+  window.__abopViewportListenerInstalled=true;
+  window.addEventListener('resize',syncTrackerViewport,{passive:true});
+  window.visualViewport?.addEventListener('resize',syncTrackerViewport,{passive:true});
+  window.visualViewport?.addEventListener('scroll',syncTrackerViewport,{passive:true});
+  document.addEventListener('keydown',event=>{
+   if(event.key!=='Escape'||!panelOpen)return;
+   panelOpen=false;render();
+  });
+ }
+ syncTrackerViewport();
  const ready=()=>{
   const result=mountExtensionLaunchers(document,openTrackerPanel);
   return result.menu&&result.settings;

@@ -117,3 +117,104 @@
 #abop-panel .abop-actions select[id^="abop-drug-"]{max-width:200px;flex:1 1 160px}
 #abop-panel .abop-actions select[id^="abop-drug-mode-"]{max-width:150px;flex:1 1 120px}
 @media(max-width:420px){#abop-panel .abop-top strong small{display:none}#abop-panel .abop-top strong{font-size:12px}}
+
+
+/* v0.3.17 | Mobile: use the actual visible viewport; keep header, tabs,
+   close control and status line in view while scrolling content separately. */
+#abop-panel .abop-shell{min-height:0;min-width:0}
+#abop-panel .abop-main{min-width:0;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#abop-panel .abop-top{flex-shrink:0}
+#abop-panel .abop-top button{flex-shrink:0}
+#abop-panel .abop-statusbar{flex:0 0 auto;position:static;bottom:auto;margin:0;border-top:1px solid var(--ab-line);padding:8px 13px;background:var(--ab-footer);color:var(--ab-muted);font-size:12px;min-height:36px;overflow-wrap:anywhere}
+@media(max-width:720px){
+  /* Position against visualViewport (iOS/Android browser chrome, keyboard). */
+  #abop-panel{
+    position:fixed!important;
+    inset:auto!important;
+    top:var(--abop-viewport-top,0px)!important;
+    left:var(--abop-viewport-left,0px)!important;
+    width:var(--abop-viewport-width,100vw)!important;
+    height:var(--abop-viewport-height,100dvh)!important;
+    max-width:none!important;
+    max-height:none!important;
+    padding:0!important;
+    margin:0!important;
+    border:0!important;
+    align-items:stretch!important;
+    justify-content:stretch!important;
+    overflow:hidden!important;
+    z-index:2147483000;
+  }
+  #abop-panel .abop-window{
+    flex:1 1 auto;width:100%;min-width:0;max-width:none;
+    height:100%;max-height:100%;min-height:0;
+    border:0;border-radius:0;box-shadow:none;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  #abop-panel .abop-top{
+    flex:0 0 auto;min-height:52px;
+    padding:calc(9px + env(safe-area-inset-top, 0px)) 12px 9px;
+    gap:8px;
+  }
+  #abop-panel .abop-top strong{font-size:15px;letter-spacing:0;line-height:1.25}
+  #abop-panel .abop-top .abop-version{font-size:10px;white-space:nowrap}
+  #abop-panel .abop-top button{min-width:42px;min-height:42px;font-size:18px}
+  #abop-panel .abop-shell{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+  #abop-panel .abop-nav{
+    flex:0 0 auto;width:100%;min-width:0;
+    flex-direction:row;align-items:stretch;gap:0;
+    padding:0;
+    border-right:0;border-bottom:1px solid var(--ab-line);
+    overflow-x:auto;overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-x:contain;
+    scrollbar-width:thin;
+  }
+  #abop-panel .abop-nav button{
+    flex:1 0 66px;width:auto;min-width:66px;max-width:none;
+    min-height:55px;padding:6px 5px;gap:3px;
+    border-left:0;border-bottom:3px solid transparent;
+  }
+  #abop-panel .abop-nav button.selected{border-left:0;border-bottom-color:var(--ab-mint)}
+  #abop-panel .abop-nav button span{font-size:18px;line-height:1.1}
+  #abop-panel .abop-nav button small{font-size:11px;line-height:1.2;letter-spacing:0;white-space:nowrap}
+  #abop-panel .abop-main{
+    flex:1 1 auto;min-height:0;min-width:0;
+    overflow-y:auto;overflow-x:hidden;
+    padding:15px 12px 26px;
+  }
+  #abop-panel .abop-subhead{font-size:11px;line-height:1.4;gap:8px;flex-wrap:wrap}
+  #abop-panel .abop-people,#abop-panel .abop-fields{grid-template-columns:minmax(0,1fr)!important;gap:11px}
+  #abop-panel .abop-frame{margin-bottom:14px;padding:13px;min-width:0;max-width:100%}
+  #abop-panel .abop-fields label{min-width:0;font-size:13px}
+  #abop-panel select,#abop-panel input:not([type=checkbox]){min-height:44px;width:100%}
+  #abop-panel .abop-fieldlabel select,#abop-panel .abop-fieldlabel input{width:100%}
+  #abop-panel .abop-actions{gap:7px}
+  #abop-panel .abop-actions button{min-height:41px}
+  #abop-panel .abop-proposal-row{gap:9px;padding:10px;min-width:0}
+  #abop-panel .abop-proposal-content{min-width:0}
+  #abop-panel .abop-proposal-content small{overflow-wrap:anywhere}
+  #abop-panel .abop-applybar{gap:8px}
+  #abop-panel .abop-applybar button{white-space:normal}
+  #abop-panel .abop-attitude{flex-wrap:wrap}
+  #abop-panel .abop-attitude select{max-width:100%;min-width:0}
+  #abop-panel .abop-savebar small{flex:1 1 100%;min-width:0}
+  #abop-panel .abop-savebar button{width:100%;min-height:42px}
+  #abop-panel .abop-number{max-width:none;flex-wrap:wrap;align-items:flex-start}
+  #abop-panel .abop-number input{flex:1 0 110px;max-width:100%}
+  #abop-panel .abop-statusbar{padding:8px 12px calc(8px + env(safe-area-inset-bottom, 0px));font-size:11px;min-height:34px}
+  #abop-panel .abop-top .abop-brandmark{flex-basis:16px;width:16px;height:16px}
+}
+@media(max-width:380px){
+  #abop-panel .abop-top{padding-right:8px;padding-left:8px;gap:5px}
+  #abop-panel .abop-top strong{font-size:13px}
+  #abop-panel .abop-top .abop-version{font-size:9px}
+  #abop-panel .abop-top button{min-width:40px;min-height:40px}
+  #abop-panel .abop-main{padding:12px 9px 22px}
+  #abop-panel .abop-frame{padding:11px}
+}
+/* Do not conceal the last tab on 320px-wide phones. */
+@media(max-width:380px){
+  #abop-panel .abop-nav button{flex:1 1 0;min-width:0;padding:6px 1px}
+  #abop-panel .abop-nav button small{font-size:10px;letter-spacing:-.35px}
+}
