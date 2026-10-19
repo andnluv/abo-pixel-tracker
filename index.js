@@ -9,11 +9,14 @@ import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLe
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 import {normalizeSetupOutputTokens,MIN_SETUP_OUTPUT_TOKENS,MAX_SETUP_OUTPUT_TOKENS} from './setup-options.mjs';
 import {buildProfileSetupInput} from './profile-setup-input.mjs';
+import {MAIN_TARGET,npcCanon,discoverNpcProfiles,namedTarget,sharedEvent,combineNpcRecords} from './npc-tracking.mjs';
+import {getRequestHeaders} from '/script.js';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
 let active=false, working=false, state=null, status='준비됨',panelOpen=false, tab='status', lastKey='';
 let sessionApiKey=''; // Never serialized or persisted. Cleared on page reload.
+let npcCandidates=[], npcScanChatId='', npcSearch='';
 const html=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const el=(id)=>document.getElementById(id);
 const fmt=(n)=>Number.isFinite(n)?Math.round(n*10)/10:0;
@@ -75,6 +78,74 @@ function meta(create=true){
  }
  return c.chatMetadata[STORAGE]||null;
 }
+function npcTracking(m){
+ if(!m.npcTracking)m.npcTracking={mode:'single',activeId:MAIN_TARGET,targets:{},ledgers:{},pending:{}};
+ return m.npcTracking;
+}
+function selectedNpcId(m){const t=npcTracking(m);return t.mode==='multi'?t.activeId:MAIN_TARGET;}
+function selectedNpc(m){const id=selectedNpcId(m);return id===MAIN_TARGET?null:npcTracking(m).targets[id]||null;}
+function effectiveCanon(m){const t=selectedNpc(m);return t?{char:npcCanon(t),user:m.canon.user}:m.canon;}
+function effectiveOverrides(m){const t=selectedNpc(m);return t?{char:t.overrides||{},user:m.overrides.user||{}}:m.overrides;}
+function currentRoleOverrides(m,role){if(role==='char'){const t=selectedNpc(m);if(t)return t.overrides??={};}m.overrides[role]??={};return m.overrides[role];}
+function currentCharLedger(m){const t=selectedNpc(m);return t?(npcTracking(m).ledgers[t.id]??={}):m.ledger;}
+function clearProposalOnTargetChange(m,nextId){
+ const t=npcTracking(m),current=selectedNpcId(m);
+ if(m.initialProposal)t.pending[current]=m.initialProposal;
+ t.activeId=nextId;
+ m.initialProposal=t.pending[nextId]||null;
+}
+function currentNpcReady(m){return npcTracking(m).mode!=='multi'||!!selectedNpc(m);}
+async function readWorldBook(name){
+ const res=await fetch('/api/worldinfo/get',{method:'POST',headers:getRequestHeaders(),body:JSON.stringify({name}),cache:'no-cache'});
+ if(!res.ok)throw new Error(`${name}: HTTP ${res.status}`);
+ return res.json();
+}
+async function scanNpcSources(){
+ const c=S(),m=meta(),chatId=c.chatId;
+ if(!m||working)return;
+ working=true;setStatus('현재 캐릭터·채팅 월드 인포에서 NPC 검색 중…');render();
+ try{
+  const ch=c.characters?.[c.characterId]||c.characters?.[c.this_chid]||{};
+  const data=ch.data||{},sources=[];
+  for(const [label,book] of [['캐릭터 내장 월드 인포',data.character_book||ch.character_book],['현재 채팅 내장 월드 인포',c.chatMetadata?.character_book]]){
+   if(book)sources.push({name:label,data:book});
+  }
+  const names=[c.chatMetadata?.world_info,data.extensions?.world,ch.extensions?.world,...(Array.isArray(data.extensions?.worlds)?data.extensions.worlds:[])].filter(x=>typeof x==='string'&&x.trim());
+  let failed=[];
+  for(const name of [...new Set(names)]){
+   try{sources.push({name,data:await readWorldBook(name)});}catch(e){failed.push(`${name}: ${e.message}`);}
+  }
+  if(S().chatId!==chatId)return setStatus('채팅이 바뀌어 NPC 검색 결과를 폐기했습니다');
+  npcCandidates=discoverNpcProfiles(sources);npcScanChatId=chatId;npcSearch='';
+  setStatus(`NPC 후보 ${npcCandidates.length}명 발견${failed.length?` · 읽지 못한 월드 인포 ${failed.length}개`:''}`);
+  if(failed.length)console.warn('[ABO Pixel] NPC book read warnings:',failed);
+ }catch(e){console.error('[ABO Pixel] NPC discovery failed',e);setStatus(`NPC 검색 실패: ${e.message}`);}finally{working=false;render();}
+}
+async function switchNpc(targetId){
+ const m=meta(),t=npcTracking(m);if(working)return setStatus('분석 완료 후 추적 대상을 변경하세요');
+ if(targetId!==MAIN_TARGET&&!t.targets[targetId])return setStatus('NPC를 찾을 수 없습니다. 다시 검색해 주세요');
+ clearProposalOnTargetChange(m,targetId);t.mode=targetId===MAIN_TARGET?'single':'multi';
+ await persist();refresh();setStatus(targetId===MAIN_TARGET?'단일 캐릭터 추적으로 전환 완료':`CHAR 추적 대상: ${t.targets[targetId].name}`);
+}
+function renderNpcTarget(){
+ const m=meta(false);if(!m)return '';
+ const t=npcTracking(m),active=selectedNpc(m),candidateOptions=npcCandidates.filter(x=>npcSearch&&!(x.name.toLowerCase().includes(npcSearch.toLowerCase())||x.source.toLowerCase().includes(npcSearch.toLowerCase()))?false:true);
+ const registered=Object.values(t.targets);
+ const options=[...registered,...candidateOptions.filter(c=>!t.targets[c.id])];
+ return `<section class="abop-frame abop-npc"><header>◇ CHAR · 추적 대상 <small>USER 페르소나는 유지</small></header>
+ <p class="abop-muted">다인·세계관 봇에서는 {{char}}가 서술자일 수 있습니다. NPC를 직접 지정하면 해당 인물의 설정과 사건만 CHAR로 관리합니다.</p>
+ <div class="abop-actions"><button type="button" data-action="singleNpc" ${t.mode==='single'?'disabled':''}>일반 캐릭터</button><button type="button" data-action="multiNpc" ${t.mode==='multi'?'disabled':''}>다인 봇</button></div>
+ ${t.mode==='multi'?`<div class="abop-npc-controls"><p class="abop-muted">현재 대상: <b>${html(active?.name||'선택되지 않음')}</b> ${active?`· ${html(active.source||'')}`:''}</p>
+ <div class="abop-actions"><button type="button" data-action="scanNPCs">월드 인포에서 NPC 찾기</button><small>${npcScanChatId===S().chatId?`후보 ${npcCandidates.length}명`:'검색 전'}</small></div>
+ <label class="abop-fieldlabel">이름 검색<input type="search" id="abop-npc-search" data-npc-search value="${html(npcSearch)}" placeholder="이름 또는 월드 인포 이름" /></label>
+ <label class="abop-fieldlabel">검색/저장된 인물<select id="abop-npc-select"><option value="">NPC 선택…</option>${options.map(x=>`<option value="${html(x.id)}" ${active?.id===x.id?'selected':''}>${html(x.name)} · ${html(x.source||'직접 추가')}${t.targets[x.id]?' · 저장됨':''}</option>`).join('')}</select></label>
+ <div class="abop-actions"><button type="button" class="abop-primary" data-action="selectNpc">이 NPC 추적</button></div>
+ <details><summary>＋ NPC 직접 추가</summary><label class="abop-fieldlabel">이름<input id="abop-npc-name" maxlength="100" placeholder="캐릭터 이름" /></label>
+ <label class="abop-fieldlabel">다른 이름·호칭 (쉼표로 구분)<input id="abop-npc-aliases" placeholder="영문명, 별명" /></label>
+ <label class="abop-fieldlabel">프로필 설명 (선택)<textarea id="abop-npc-description" rows="6" placeholder="월드 인포에 없거나 직접 수정하고 싶은 설정을 입력하세요"></textarea></label>
+ <button type="button" data-action="addNpc">NPC 추가하고 추적</button></details></div>`:''}
+ <p class="abop-muted">현재 채팅의 메타데이터에 NPC별 설정·분석 기록을 저장합니다. 월드 인포 원본은 수정하지 않습니다.</p></section>`;
+}
 async function persist(){try{if(typeof S().saveMetadata!=='function')throw new Error('SillyTavern 메타데이터 저장 기능이 없습니다');await S().saveMetadata();return true;}catch(e){console.warn('[ABO Pixel] Metadata saving failed',e);setStatus('저장 실패: 개발자 콘솔 확인');return false;}}
 function readCanon(){
  const c=S(), character=c.characters?.[c.characterId]||c.characters?.[c.this_chid]||{};
@@ -111,14 +182,15 @@ function setStatus(s){status=s;const node=el('abop-statusline');if(node)node.tex
 function branchState(){
  const m=meta(false);if(!m)return null;
  const chat=S().chat||[];
- const rows=filterRowsByPersona(sortedRecords(chat,m.ledger||{}),m.userPersonaIdentity);
- return replay(m.seed,m.canon,m.config||DEFAULT_CONFIG,rows,m.overrides||{});
+ const t=selectedNpc(m);
+ const rows=t?combineNpcRecords(chat,m.ledger||{},currentCharLedger(m),m.userPersonaIdentity):filterRowsByPersona(sortedRecords(chat,m.ledger||{}),m.userPersonaIdentity);
+ return replay(m.seed,effectiveCanon(m),m.config||DEFAULT_CONFIG,rows,effectiveOverrides(m));
 }
 function updatePrompt(){
  try{
   const c=S();if(typeof c.setExtensionPrompt!=='function')return;
   const m=meta(false);
-  const body=state&&m?.config?.enabled&&m?.config?.injectState?formatPrompt(state,false):'';
+  const body=state&&m?.config?.enabled&&m?.config?.injectState&&currentNpcReady(m)?formatPrompt(state,false):'';
   c.setExtensionPrompt(PROMPT,body,0,0,false,0);
  }catch(e){console.warn('[ABO Pixel] prompt injection unavailable',e);}
 }
@@ -137,29 +209,47 @@ async function analyzeLatest({force=false}={}){
  const m=meta();syncCanon();const src=sourceForCurrent();if(!m||!src)return setStatus('분석할 CHAR 메시지가 없습니다');
  if(!m.config.enabled)return setStatus('확장이 비활성화됨');
  if(!force&&!m.config.autoAnalyze)return;
- if(m.ledger[src.key]?.analyzed&&m.ledger[src.key]?.personaId===m.userPersonaIdentity&&!force)return;
+ if(!currentNpcReady(m))return setStatus('먼저 CHAR 추적 NPC를 선택하세요');
+ const originTarget=selectedNpcId(m), ledger=currentCharLedger(m);
+ if(ledger[src.key]?.analyzed&&ledger[src.key]?.personaId===m.userPersonaIdentity&&!force)return;
  const originChat=S().chatId, originKey=src.key, originPersona=m.userPersonaIdentity;
  const c=S();
  working=true;setStatus('별도 모델로 사건 분석 중…');render();
  try{
   const last=branchState();
-  const prompt=buildAnalyzerUserPrompt({charName:m.canon.char.name,userName:m.canon.user.name,charCard:m.canon.char.card,userPersona:m.canon.user.card,userText:src.userText,assistantText:src.assistantText,existingState:last?{clockHours:last.clockHours,people:Object.fromEntries(Object.entries(last.people).map(([k,p])=>[k,{sex:p.sex,secondary:p.secondary,phase:p.cycle.phase,pregnancy:p.pregnancy.status}]))}:null});
+  const ec=effectiveCanon(m);
+  const prompt=buildAnalyzerUserPrompt({charName:ec.char.name,charAliases:ec.char.aliases||[],multiNpc:originTarget!==MAIN_TARGET,userName:ec.user.name,charCard:ec.char.card,userPersona:ec.user.card,userText:src.userText,assistantText:src.assistantText,existingState:last?{clockHours:last.clockHours,people:Object.fromEntries(Object.entries(last.people).map(([k,p])=>[k,{sex:p.sex,secondary:p.secondary,phase:p.cycle.phase,pregnancy:p.pregnancy.status}]))}:null});
   const reply=await analysisRequest(ANALYZER_SYSTEM,prompt,2200);
   syncCanon();
-  if(S().chatId!==originChat||m.userPersonaIdentity!==originPersona||!sourceForCurrent()||sourceForCurrent().key!==originKey){setStatus('채팅/페르소나/응답 변경으로 분석 결과 폐기');return;}
+  if(S().chatId!==originChat||m.userPersonaIdentity!==originPersona||selectedNpcId(m)!==originTarget||!sourceForCurrent()||sourceForCurrent().key!==originKey){setStatus('채팅/페르소나/응답 변경으로 분석 결과 폐기');return;}
   const events=parseModelOutput(reply,src.userText,src.assistantText).map((e,i)=>({...e,id:eventIDFor(originKey,i),sceneId:e.sceneId||originKey}));
-  const existing=m.ledger[originKey]||{};
+  const existing=ledger[originKey]||{};
   if(existing.personaId&&existing.personaId!==originPersona){setStatus('이 응답은 이전 USER 페르소나의 기록입니다. 새 응답에서 다시 분석하세요.');return;}
-  m.ledger[originKey]={analyzed:true,events:[...events,...(existing.manual||[])],manual:existing.manual||[],personaId:originPersona,at:Date.now()};
+  if(originTarget===MAIN_TARGET){
+   ledger[originKey]={analyzed:true,events:[...events,...(existing.manual||[])],manual:existing.manual||[],personaId:originPersona,at:Date.now()};
+  }else{
+   const charEvents=events.filter(e=>!sharedEvent(e)), userEvents=events.filter(sharedEvent);
+   ledger[originKey]={analyzed:true,events:[...charEvents,...(existing.manual||[])],manual:existing.manual||[],personaId:originPersona,at:Date.now()};
+   const common=m.ledger[originKey]||{};
+   if(!common.personaId||common.personaId===originPersona){
+    const oldEvents=common.events||[];
+    const signature=e=>`${e.kind}|${e.person||''}|${e.evidence||''}|${e.hours||''}`;
+    const seen=new Set(oldEvents.map(signature));
+    const additional=userEvents.filter(e=>{const k=signature(e);if(seen.has(k))return false;seen.add(k);return true;});
+    m.ledger[originKey]={...common,events:[...oldEvents,...additional],personaId:originPersona,at:Date.now()};
+   }
+  }
   await persist();setStatus(`분석 완료 · 확인된 사건 ${events.length}건`);refresh();
  }catch(e){console.error('[ABO Pixel] generation error',e);setStatus(`분석 실패: ${e.message||'모델/API 연결 확인'}`);}finally{working=false;render();}
 }
 async function initialProfileAnalyze(){
  const m=meta();syncCanon();if(!m||working)return;
+ if(!currentNpcReady(m))return setStatus('먼저 CHAR 추적 NPC를 선택하세요');
+ const targetId=selectedNpcId(m);
  working=true;tab='setup';setStatus('CHAR·USER 프로필 제안 생성 중…');render();
  const chatId=S().chatId, originalPersona=m.userPersonaIdentity;
  try{
-  const setupInput=buildProfileSetupInput(m.canon,m.overrides);
+  const setupInput=buildProfileSetupInput(effectiveCanon(m),effectiveOverrides(m));
   const setupMax=normalizeSetupOutputTokens(m.config.setupMaxTokens);
   let draft;
   try{
@@ -179,11 +269,11 @@ async function initialProfileAnalyze(){
    }
   }
   syncCanon();
-  if(S().chatId!==chatId||m.userPersonaIdentity!==originalPersona){setStatus('채팅/페르소나 변경으로 분석 결과 폐기');return;}
-  draft.personaIdentity=originalPersona;
+  if(S().chatId!==chatId||m.userPersonaIdentity!==originalPersona||selectedNpcId(m)!==targetId){setStatus('채팅/페르소나 변경으로 분석 결과 폐기');return;}
+  draft.personaIdentity=originalPersona;draft.targetId=targetId;
   // Models can be wrong. Explicit manual settings always start unchecked/locked.
   for(const role of ['char','user']){
-   const locked=m.overrides?.[role]||{};
+   const locked=effectiveOverrides(m)?.[role]||{};
    for(const field of draft.roles[role].fields)if(Object.hasOwn(locked,field.key))field.checked=false;
   }
   m.initialProposal=draft;await persist();
@@ -201,12 +291,12 @@ function renderSetup(){
  const m=meta(false);if(!m)return '';
  const draft=m.initialProposal;
  const hint='<p class="abop-muted">카드·페르소나의 확정 정보와 성격 기반 제안을 구분합니다. 체크한 항목만 실제 프로필에 적용됩니다. 수동으로 이미 고정한 항목은 보호됩니다.</p>';
- if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity)return `<section class="abop-frame"><header>◇ 초기 프로필 설정</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
+ if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity||draft.targetId!==selectedNpcId(m))return `<section class="abop-frame"><header>◇ 초기 프로필 설정</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
  let out=`<section class="abop-frame"><header>◇ 초기 프로필 제안 <small>미적용 초안</small></header>${hint}
  <div class="abop-actions"><button data-action="init">다시 분석</button><button data-action="discardProposal">제안 버리기</button></div></section>`;
  for(const role of ['char','user']){
-  const d=draft.roles[role],own=m.overrides?.[role]||{};
-  out+=`<section class="abop-frame"><header>◇ ${role.toUpperCase()} · ${html(m.canon[role]?.name||'')}</header>
+  const d=draft.roles[role],own=effectiveOverrides(m)?.[role]||{};
+  out+=`<section class="abop-frame"><header>◇ ${role.toUpperCase()} · ${html(effectiveCanon(m)[role]?.name||'')}</header>
   <p class="abop-muted">왼쪽 체크 = 적용 여부 · 제안 내용을 자유롭게 수정할 수 있습니다.</p><div class="abop-proposal-fields">`;
   for(const [i,f] of d.fields.entries()){
    const disabled=Object.hasOwn(own,f.key),checked=f.checked&&!disabled;
@@ -239,18 +329,20 @@ function renderSetup(){
 async function applyProfileProposal(){
  const m=meta(),draft=m?.initialProposal;
  syncCanon();
- if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity)return setStatus('페르소나가 변경되어 이전 제안은 적용할 수 없습니다');
+ if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity||draft.targetId!==selectedNpcId(m))return setStatus('페르소나가 변경되어 이전 제안은 적용할 수 없습니다');
  let applied=0;
  for(const role of ['char','user']){
   const rec=draft.roles?.[role];if(!rec)continue;
-  m.overrides[role]??={};
+  const own=currentRoleOverrides(m,role);
   for(const f of rec.fields){
-   if(!f.checked||Object.hasOwn(m.overrides[role],f.key))continue;
-   m.overrides[role][f.key]=f.value;applied++;
+   if(!f.checked||Object.hasOwn(own,f.key))continue;
+   own[f.key]=f.value;applied++;
   }
   const chosen=[...(rec.confirmed||[]),...(rec.latent||[])].some(p=>p.checked);
   if(chosen||rec.useAttitude){
-   m.canon[role].preferences=mergeSelectedPreferences(m.canon[role].preferences,rec);
+   const target=role==='char'?selectedNpc(m):null;
+   if(target)target.preferences=mergeSelectedPreferences(target.preferences,rec);
+   else m.canon[role].preferences=mergeSelectedPreferences(m.canon[role].preferences,rec);
    applied += [...(rec.confirmed||[]),...(rec.latent||[])].filter(p=>p.checked).length;
   }
  }
@@ -260,8 +352,9 @@ async function applyProfileProposal(){
 function selectedSection(){
  const m=meta(false);if(!state||!m)return `<p class="abop-muted">채팅을 연 뒤 사용할 수 있습니다.</p>`;
  const people=Object.entries(state.people);
+ if(!currentNpcReady(m)&&tab!=='settings')return renderNpcTarget()+'<section class="abop-frame"><p class="abop-muted">다인 봇 모드에서는 추적할 NPC를 먼저 선택해 주세요. 선택하기 전에는 내레이터를 CHAR로 분석하지 않습니다.</p></section>';
  if(tab==='setup')return renderSetup();
- if(tab==='status')return `<div class="abop-people">${people.map(([id,p])=>personCard(id,p,m)).join('')}</div>
+ if(tab==='status')return `${renderNpcTarget()}<div class="abop-people">${people.map(([id,p])=>personCard(id,p,m)).join('')}</div>
   <section class="abop-frame"><header>◈ 서사 시간 · 사건</header><p class="abop-meta">D${Math.floor(state.clockHours/24)} · ${fmt(state.clockHours%24)}h / 기록 ${state.events.length}건</p>
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
@@ -290,7 +383,7 @@ function selectedSection(){
   <hr/><label class="abop-check"><input type="checkbox" data-config="enabled" ${m.config.enabled?'checked':''}/> 확장 활성화</label><label class="abop-check"><input type="checkbox" data-config="autoAnalyze" ${m.config.autoAnalyze?'checked':''}/> 응답마다 별도 분석 호출 (추가 API 비용 발생 가능)</label><label class="abop-check"><input type="checkbox" data-config="injectState" ${m.config.injectState?'checked':''}/> 다음 RP에 내부 상태 주입</label><label class="abop-check"><input type="checkbox" data-config="hideTruth" ${m.config.hideTruth?'checked':''}/> 화면에서 임신 결과 숨기기 (모델 주입에는 유지)</label><hr/><div class="abop-title">기본 수태 확률 (%)</div>${Object.entries(m.config.rate).map(([k,v])=>`<label class="abop-number">${html(k)} <input type="number" min="0" max="100" step="1" data-rate="${k}" value="${fmt(v*100)}" /></label>`).join('')}<hr/><button data-action="openSetup">초기 프로필 셋업 열기</button><button data-action="reanalyze">최근 응답 재분석</button><button data-action="export">채팅 데이터 내보내기</button><p class="abop-muted">수동 변경은 자동 판독보다 우선합니다. 선택된 응답에 속한 분석 사건만 적용됩니다.</p></section>`;
 }
 function personCard(id,p,m){
- const own=m.overrides?.[id]||{};
+ const own=effectiveOverrides(m)?.[id]||{};
  const options=(val,items)=>items.map(([k,v])=>`<option value="${k}" ${val===k?'selected':''}>${v}</option>`).join('');
  return `<section class="abop-frame abop-person"><header><span class="abop-icon">${id==='char'?'◇':'◆'}</span> ${id.toUpperCase()} <small>${id==='char'?'캐릭터':'페르소나'}</small></header>
  <div class="abop-title">${html(p.name)}</div>
@@ -314,7 +407,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.8</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>ABO / RELATIONSHIP TRACKER</strong><span class="abop-version">v0.3.9</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','수태','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'수태','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -329,6 +422,7 @@ function buildUI(){
 }
 async function handlePanelChange(e){
  const t=e.target,m=meta();if(!m)return;
+ if(t.hasAttribute('data-npc-search')){npcSearch=t.value;render();return;}
  if(t.hasAttribute('data-theme-choice')){m.config.uiTheme=t.value;
  }else if(t.dataset.proposalCheck){const field=m.initialProposal?.roles?.[t.dataset.proposalCheck]?.fields?.[Number(t.dataset.i)];if(field)field.checked=t.checked;
  }else if(t.dataset.proposalValue){const f=m.initialProposal?.roles?.[t.dataset.proposalValue]?.fields?.[Number(t.dataset.i)];if(f){f.value=typeof f.value==='boolean'?t.value==='true':t.value;}
@@ -346,7 +440,7 @@ async function handlePanelChange(e){
  }else if(t.dataset.person){
   const id=t.dataset.person,field=t.dataset.field;
   const value=field==='cycleEnabled'?t.value==='true':t.value;
-  m.overrides[id]??={};m.overrides[id][field]=value;
+  currentRoleOverrides(m,id)[field]=value;
  }else if(t.dataset.config){m.config[t.dataset.config]=!!t.checked;
  }else if(t.hasAttribute('data-connection')){
   m.config.analysisConnection=t.value;
@@ -362,10 +456,16 @@ async function handlePanelChange(e){
 }
 async function addManualEvents(events){
  const m=meta(),src=sourceForCurrent();syncCanon();if(!m||!src)return setStatus('먼저 대화를 시작하세요');
- const key=src.key;let rec=m.ledger[key]||{analyzed:false,events:[],manual:[]};
+ if(!currentNpcReady(m))return setStatus('먼저 CHAR 추적 NPC를 선택하세요');
+ const key=src.key,target=selectedNpcId(m),ledger=currentCharLedger(m);let rec=ledger[key]||{analyzed:false,events:[],manual:[]};
  if(rec.personaId&&rec.personaId!==m.userPersonaIdentity)return setStatus('이 응답은 이전 USER 페르소나의 기록입니다. 새 응답 뒤에 사건을 기록하세요.');
  const rows=events.map((e,i)=>({...e,id:`${key}/manual:${Date.now()}:${i}`}));
- rec.manual.push(...rows);rec.events.push(...rows);rec.personaId=m.userPersonaIdentity;m.ledger[key]=rec;await persist();refresh();
+ if(target!==MAIN_TARGET){
+  const shared=rows.filter(sharedEvent),local=rows.filter(e=>!sharedEvent(e));
+  if(shared.length){const base=m.ledger[key]||{events:[],manual:[]};base.events.push(...shared);base.manual.push(...shared);base.personaId=m.userPersonaIdentity;m.ledger[key]=base;}
+  rec.manual.push(...local);rec.events.push(...local);
+ }else{rec.manual.push(...rows);rec.events.push(...rows);}
+ rec.personaId=m.userPersonaIdentity;ledger[key]=rec;await persist();refresh();
 }
 async function handlePanelClick(e){
  const t=e.target.closest('button');if(!t)return;
@@ -373,12 +473,28 @@ async function handlePanelClick(e){
  const act=t.dataset.action;if(!act)return;
  if(act==='close'){panelOpen=false;render();return;}
  if(act==='themeCycle'){const m=meta();m.config.uiTheme=m.config.uiTheme==='dark'?'light':'dark';await persist();refresh();return;}
+ if(act==='singleNpc'){await switchNpc(MAIN_TARGET);return;}
+ if(act==='multiNpc'){const m=meta(),t=npcTracking(m);if(m.initialProposal)t.pending[MAIN_TARGET]=m.initialProposal;t.mode='multi';t.activeId=t.activeId===MAIN_TARGET?'':t.activeId;m.initialProposal=t.pending[t.activeId]||null;await persist();refresh();setStatus('다인 봇 모드 · NPC를 선택하거나 직접 추가하세요');return;}
+ if(act==='scanNPCs'){await scanNpcSources();return;}
+ if(act==='selectNpc'){
+  const id=el('abop-npc-select')?.value,m=meta();if(!id)return setStatus('NPC를 먼저 선택하세요');
+  const t=npcTracking(m),candidate=npcCandidates.find(x=>x.id===id);
+  if(!t.targets[id]&&candidate)t.targets[id]={...npcCanon(candidate),overrides:{}};
+  await switchNpc(id);return;
+ }
+ if(act==='addNpc'){
+  const m=meta(),name=el('abop-npc-name')?.value,description=el('abop-npc-description')?.value;
+  const aliases=(el('abop-npc-aliases')?.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+  let target;try{target=namedTarget(name,description,'직접 추가',aliases);}catch(e){return setStatus(e.message);}
+  const t=npcTracking(m);if(t.targets[target.id])return setStatus('이미 추가된 NPC입니다. 목록에서 해당 인물을 선택해 주세요');
+  t.targets[target.id]={...target,overrides:{}};await switchNpc(target.id);return;
+ }
  if(act==='openSetup'){tab='setup';render();return;}
  if(act==='saveABO'){
   const role=t.dataset.role;if(!['char','user'].includes(role))return;
   const m=meta();const selected=el('abop-panel')?.querySelector(`select[data-person="${role}"][data-field="secondary"]`)?.value;
   if(!['alpha','beta','omega'].includes(selected))return setStatus('ABO 선택값이 올바르지 않습니다');
-  m.overrides[role]??={};m.overrides[role].secondary=selected;
+  currentRoleOverrides(m,role).secondary=selected;
   const saved=await persist();refresh();setStatus(saved?`${role.toUpperCase()} ABO ${selected.toUpperCase()} 선택 저장 완료`:'ABO 설정 저장 실패 · 콘솔 확인');return;
  }
  if(act==='applyProposal'){await applyProfileProposal();return;}
@@ -425,20 +541,20 @@ async function handlePanelClick(e){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='abo-tracker-chat-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
  }
 }
-function onEvent(){refresh();
+function onEvent(){if(npcScanChatId!==S().chatId){npcCandidates=[];npcScanChatId='';npcSearch='';}refresh();
  // CHAT_CHANGED may precede SillyTavern's persona auto-selection. Recheck after
  // its own synchronous/async persona-lock handlers have finished.
  setTimeout(()=>refresh(),0);
  setTimeout(()=>refresh(),300);
 }
 function onMessage(){
- refresh();const m=meta(false);if(!m?.config?.autoAnalyze||!m.config.enabled)return;
+ refresh();const m=meta(false);if(!m?.config?.autoAnalyze||!m.config.enabled||!currentNpcReady(m))return;
  // Allow the host to finish appending and selecting the final swipe before analysis.
  setTimeout(()=>{analyzeLatest().catch(err=>console.error(err));},350);
 }
 function subscribe(){
  const c=S(),source=c.eventSource,t=c.event_types||{};if(!source?.on)return;
- for(const name of ['CHAT_CHANGED','CHAT_CREATED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED','PERSONA_CHANGED','PERSONA_UPDATED','PERSONA_RENAMED','CHARACTER_EDITED'])if(t[name])source.on(t[name],onEvent);
+ for(const name of ['CHAT_CHANGED','CHAT_CREATED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED','PERSONA_CHANGED','PERSONA_UPDATED','PERSONA_RENAMED','CHARACTER_EDITED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED'])if(t[name])source.on(t[name],onEvent);
  if(t.MESSAGE_RECEIVED)source.on(t.MESSAGE_RECEIVED,onMessage);
  if(t.GENERATION_STARTED)source.on(t.GENERATION_STARTED,updatePrompt);
 }

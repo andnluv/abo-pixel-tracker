@@ -55,7 +55,7 @@ export function person(id,name,seed,canon={}){
  const active=abo==='omega'?pickInt(seed,`${id}:active`,3,7)*24:pickInt(seed,`${id}:active`,1,3)*24;
  const recovery=abo==='omega'?pickInt(seed,`${id}:recovery`,12,72):pickInt(seed,`${id}:recovery`,12,48);
  return {
-  id,name:String(name||id),sex,secondary:abo,source:{sex:sex!=='unknown'?'card':'unknown',secondary:secondary!=='unknown'?'card':'initial_roll'},
+  id,identityId:String(canon.id||''),name:String(name||id),sex,secondary:abo,source:{sex:sex!=='unknown'?'card':'unknown',secondary:secondary!=='unknown'?'card':'initial_roll'},
   locks:{},anatomy:canon.anatomy||anatomyDefault(sex,abo),anatomyDetail:canon.anatomyDetail||'',inseminationOrgan:canon.inseminationOrgan||'',
   presentation:{pheromoneScent:canon.pheromoneScent||'',contactStyle:canon.contactStyle||'',vocalStyle:canon.vocalStyle||'',speechStyle:canon.speechStyle||''},
   cycle:{enabled:abo!=='beta',intervalHours:interval*24,prodromeHours:prodrome,activeHours:active,recoveryHours:recovery,anchorHour:interval*24, phase:'quiet',ovulationHour:null},
@@ -71,7 +71,7 @@ export function person(id,name,seed,canon={}){
 }
 export function initialState(seed,canon={},config={}){
  return {schema:VERSION,seed,clockHours:0,
- people:{char:person('char',canon.char?.name||'CHAR',seed,canon.char),user:person('user',canon.user?.name||'USER',seed,canon.user)},
+ people:{char:person('char',canon.char?.name||'CHAR',canon.char?.id?`${seed}:${canon.char.id}`:seed,canon.char),user:person('user',canon.user?.name||'USER',seed,canon.user)},
  bonds:[],affinity:{},windows:{},events:[],alerts:[],config:{...DEFAULT_CONFIG,...config}};
 }
 export function areCompatible(source,target){
@@ -188,7 +188,7 @@ function updateCycles(state){
 }
 function updateWindow(state,gestator,ovulation){
  const key=`${gestator}:${ovulation}`;
- const w=state.windows[key]||{id:key,gestator,ovulation,roll:dice(state.seed,`fertile:${key}`),exposures:[],total:0};
+ const w=state.windows[key]||{id:key,gestator,ovulation,roll:dice(state.seed,state.people[gestator]?.identityId?`fertile:${state.people[gestator].identityId}:${key}`:`fertile:${key}`),exposures:[],total:0};
  state.windows[key]=w;
  let chance=0;
  for(const x of w.exposures){chance=1-(1-chance)*(1-CLAMP(x.p*x.emergencyFactor,0,1));}
@@ -278,7 +278,7 @@ export function applyEvent(state,input){
  }
  case 'exposure':{
   const out=eventChance(state,e);if(out.p<=0){state.alerts.push(`Exposure not rolled: ${out.reason}`);break;}
-  const key=`${e.gestator}:${out.ov}`,w=state.windows[key]||{id:key,gestator:e.gestator,ovulation:out.ov,roll:dice(state.seed,`fertile:${key}`),exposures:[],total:0};
+  const key=`${e.gestator}:${out.ov}`,w=state.windows[key]||{id:key,gestator:e.gestator,ovulation:out.ov,roll:dice(state.seed,state.people[e.gestator]?.identityId?`fertile:${state.people[e.gestator].identityId}:${key}`:`fertile:${key}`),exposures:[],total:0};
   if(!w.exposures.some(x=>x.id===e.id))w.exposures.push({id:e.id,t:state.clockHours,p:out.p,emergencyFactor:1,depositions:CLAMP(Number(e.depositions)||1,1,30)});
   state.windows[key]=w;updateWindow(state,e.gestator,out.ov);
   break;

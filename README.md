@@ -1,4 +1,4 @@
-# ABO Pixel Tracker v0.3.8 (Beta)
+# ABO Pixel Tracker v0.3.9 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -6,12 +6,20 @@ Independent SillyTavern client extension (Tavern Helper is **not** required).
 
 ## Install or update from GitHub
 
-This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, `analyzer.mjs`, and **`profile.mjs`** at its root.
+This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, `analyzer.mjs`, and **`profile.mjs`** and **`npc-tracking.mjs`** at its root.
 
 1. If this is a new installation, use **SillyTavern → Extensions → Install Extension**, with the public repository URL.
 2. If an earlier version is installed, upload/commit the new files to the existing repository, keeping the same path and folder names. **Replace** the old files rather than creating a nested folder.
 3. Run the extension updater in SillyTavern and refresh the page (hard refresh if styles are cached). If the updater does not detect the release, reload the extension from SillyTavern's extension manager.
 4. Import `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json` separately if not already imported. **No need to reimport World Info** merely to update this extension.
+
+## v0.3.9 — One active NPC in multi-character / narrator cards
+
+The STATUS tab now supports **Normal Character** (unchanged default) and **Multi-NPC** modes. In Multi-NPC mode, click **월드 인포에서 NPC 찾기** to discover NPC profile entries from the embedded character book, chat-bound lorebook (`chatMetadata.world_info`), and the character's primary/linked world info. Select one NPC as CHAR, or use **＋ NPC 직접 추가** for a manually named NPC with optional aliases and profile text. A narrator/world-engine `{{char}}` is not implicitly treated as the selected NPC.
+
+Each selected NPC has its own stored source profile, manual CHAR overrides and CHAR event log. The USER persona and ordinary USER/time events are shared. Switching the NPC does not delete prior NPC records. NPC-specific partner interactions (pregnancy risk, bond) are **not yet merged globally across multiple NPCs**; this is one active CHAR at a time, not concurrent multi-NPC reproduction. Model instructions avoid attributing other NPC events to the selected NPC, but a real RP run is still required to verify identity classification.
+
+Existing chat metadata and 1:1 behavior remain under their old keys. The extension does not alter world-info content; only the selected source excerpt is persisted in this chat. World-info fetches require access to SillyTavern's `/api/worldinfo/get` endpoint. Minor NPC profiles and non-NPC world rule entries are excluded from the suggestion list. Back up the chat and test this beta before relying on it for long RP sessions.
 
 ## Changes since v0.2.0
 

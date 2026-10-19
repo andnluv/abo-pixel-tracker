@@ -45,8 +45,8 @@ test('scent proposed by the model is unchecked and not applied to live state unt
 test('state tab exposes automatic save and a meaningful manual ABO confirmation action',()=>{
  assert.match(index,/변경 시 자동 저장됩니다/);
  assert.match(index,/data-action="saveABO"/);
- assert.match(index,/m\.overrides\[role\]\.secondary=selected/);
+ assert.match(index,/currentRoleOverrides\(m,role\)\.secondary=selected/);
  assert.match(index,/ABO .*선택 저장 완료/);
- assert.match(index,/buildProfileSetupInput\(m\.canon,m\.overrides\)/);
+ assert.match(index,/buildProfileSetupInput\(effectiveCanon\(m\),effectiveOverrides\(m\)\)/);
  assert.match(css,/\.abop-savebar/);
 });

@@ -97,3 +97,11 @@
 .abop-savebar{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin:.45rem 0 .7rem}
 .abop-savebar small{flex:1;min-width:12rem;font-size:.77rem;opacity:.84;line-height:1.5}
 .abop-savebar button{white-space:nowrap;font-size:.77rem;padding:.33rem .6rem}
+
+/* v0.3.9 - scoped controls for one active NPC in narrator/multi-character chats */
+#abop-panel .abop-npc{border-left:3px solid var(--ab-mint);background:linear-gradient(90deg,var(--ab-raised),var(--ab-card) 65%)}
+#abop-panel .abop-npc-controls{margin-top:12px;padding:12px;border:1px dashed var(--ab-line);background:var(--ab-card)}
+#abop-panel .abop-npc-controls .abop-fieldlabel{margin-top:9px}
+#abop-panel .abop-npc-controls details{border-top:1px dashed var(--ab-line);padding-top:10px}
+#abop-panel .abop-npc-controls textarea{width:100%;min-height:95px;resize:vertical}
+#abop-panel .abop-npc button:disabled{cursor:default;opacity:.55}
