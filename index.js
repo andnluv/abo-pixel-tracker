@@ -1,6 +1,6 @@
 import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
-import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,completeInitialIdentityProposal,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
+import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,completeInitialIdentityProposal,alignInitialPhysiologyProposal,missingInitialSecondaryRoles,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
 import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
@@ -308,6 +308,8 @@ function renderSetup(){
  const draft=m.initialProposal;
  const hint='<p class="abop-muted">카드·페르소나의 확정 정보와 성격 기반 제안을 구분합니다. 체크한 항목만 실제 프로필에 적용됩니다. 수동으로 이미 고정한 항목은 보호됩니다.</p>';
  if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity||draft.targetId!==selectedNpcId(m))return `<section class="abop-frame"><header>◇ 초기 프로필 설정</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 카드와 수동 설정에 없는 제2성별은 성격·취향을 분석해 제안하고, 성기 형태는 해당 유형의 후보군에서 배정합니다. 기존 상태는 선택해 적용하기 전에는 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
+ const missingABO=missingInitialSecondaryRoles(draft,{canon:effectiveCanon(m),overrides:effectiveOverrides(m)});
+ if(missingABO.length)return `<section class="abop-frame"><header>◇ 초기 프로필 제안 <small>갱신 필요</small></header>${hint}<p>저장된 이전 분석 초안에 ${missingABO.map(x=>x.toUpperCase()).join(' · ')} 제2성별이 누락되어 있어 적용을 차단했습니다. 다시 분석하면 성격·취향 기반 ABO 제안과 해당 유형의 생식·주기 기본값이 함께 표시됩니다.</p><button data-action="init" class="abop-primary">CHAR + USER 다시 분석</button></section>`;
  let out=`<section class="abop-frame"><header>◇ 초기 프로필 제안 <small>미적용 초안</small></header>${hint}
  <div class="abop-actions"><button data-action="init">다시 분석</button><button data-action="discardProposal">제안 버리기</button></div></section>`;
  for(const role of ['char','user']){
@@ -324,7 +326,7 @@ function renderSetup(){
     options?`<select data-proposal-value="${role}" data-i="${i}">${choiceHTML(options,f.value)}</select>`:
     `<input type="text" data-proposal-value="${role}" data-i="${i}" value="${html(f.value)}" />`;
    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-proposal-check="${role}" data-i="${i}" ${checked?'checked':''} ${disabled?'disabled':''}/><span class="abop-sr-only">${html(f.label)} 적용</span></label>
-    <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'카드 명시':f.source==='arbitrary'?'후보군 배정':'성격·취향 분석 제안'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
+    <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'카드 명시':f.source==='arbitrary'?'후보군 배정':f.source==='abo_default'?'ABO 규칙 제안':'성격·취향 분석 제안'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
   }
   out+=`</div><h3 class="abop-setup-subtitle">친밀 성향·취향 후보 <span>잠재 후보 3~5개 · 확정 후보 별도</span></h3>`;
   for(const [kind,list] of [['confirmed',d.confirmed],['latent',d.latent]]){
@@ -346,6 +348,17 @@ async function applyProfileProposal(){
  const m=meta(),draft=m?.initialProposal;
  syncCanon();
  if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity||draft.targetId!==selectedNpcId(m))return setStatus('페르소나가 변경되어 이전 제안은 적용할 수 없습니다');
+ const missingABO=missingInitialSecondaryRoles(draft,{canon:effectiveCanon(m),overrides:effectiveOverrides(m)});
+ if(missingABO.length)return setStatus(`${missingABO.join('·').toUpperCase()} 제2성별이 누락된 이전 분석 결과입니다. 다시 분석하세요.`);
+ // Physiological defaults are contingent on an applied, explicit, or manually
+ // fixed ABO type. Never commit them against a hidden provisional STATUS roll.
+ for(const role of ['char','user']){
+  const rec=draft.roles?.[role],canon=effectiveCanon(m)?.[role]||{},own=effectiveOverrides(m)?.[role]||{};
+  const approved=['alpha','beta','omega'].includes(own.secondary)||['alpha','beta','omega'].includes(canon.secondary)||rec?.fields?.some(f=>f.key==='secondary'&&f.checked);
+  if(!approved&&rec?.fields?.some(f=>f.checked&&['anatomy','gestate','impregnate','menstruationEnabled','cycleEnabled'].includes(f.key))){
+   return setStatus(`${role.toUpperCase()} 제2성별을 먼저 체크해야 신체 유형·생식·주기 제안을 함께 적용할 수 있습니다.`);
+  }
+ }
  let applied=0;
  for(const role of ['char','user']){
   const rec=draft.roles?.[role];if(!rec)continue;
@@ -457,7 +470,25 @@ async function handlePanelChange(e){
  if(t.hasAttribute('data-npc-search')){npcSearch=t.value;render();return;}
  if(t.hasAttribute('data-theme-choice')){m.config.uiTheme=t.value;
  }else if(t.dataset.proposalCheck){const field=m.initialProposal?.roles?.[t.dataset.proposalCheck]?.fields?.[Number(t.dataset.i)];if(field)field.checked=t.checked;
- }else if(t.dataset.proposalValue){const f=m.initialProposal?.roles?.[t.dataset.proposalValue]?.fields?.[Number(t.dataset.i)];if(f){f.value=typeof f.value==='boolean'?t.value==='true':t.value;}
+ }else if(t.dataset.proposalValue){
+  const role=t.dataset.proposalValue,rec=m.initialProposal?.roles?.[role],f=rec?.fields?.[Number(t.dataset.i)];
+  if(f){
+   f.value=typeof f.value==='boolean'?t.value==='true':t.value;
+   if(['sex','secondary','anatomy'].includes(f.key)){
+    const source=effectiveCanon(m)?.[role]||{},manual=effectiveOverrides(m)?.[role]||{};
+    const sex=(['male','female','nonbinary'].includes(manual.sex)?manual.sex:null)||rec.fields.find(x=>x.key==='sex')?.value||source.sex||'unknown';
+    const abo=manual.secondary||rec.fields.find(x=>x.key==='secondary')?.value||source.secondary||'unknown';
+    const anatomy=rec.fields.find(x=>x.key==='anatomy');
+    if(anatomy&&!Object.hasOwn(manual,'anatomy')){
+     if(f.key==='anatomy')anatomy.source='user_edited';
+     else if(!anatomyChoices(sex,abo).some(([value])=>value===anatomy.value)){
+      anatomy.value=anatomyChoices(sex,abo)[0]?.[0]||anatomyDefault(sex,abo);
+      anatomy.source='arbitrary';anatomy.reason='제2성별·성별 변경에 따라 허용된 ABO 신체 유형 후보군에서 다시 선택했다.';
+     }
+    }
+    alignInitialPhysiologyProposal(rec,{source,manual});
+   }
+  }
  }else if(t.dataset.prefCheck){const pref=m.initialProposal?.roles?.[t.dataset.prefCheck]?.[t.dataset.kind]?.[Number(t.dataset.i)];if(pref)pref.checked=t.checked;
  }else if(t.dataset.prefId){
   const pref=m.initialProposal?.roles?.[t.dataset.prefId]?.[t.dataset.kind]?.[Number(t.dataset.i)];

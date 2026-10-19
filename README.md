@@ -1,4 +1,4 @@
-# 그날의 사정 v0.3.14 (Beta)
+# 그날의 사정 v0.3.15 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -12,6 +12,10 @@ This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, 
 2. If an earlier version is installed, upload/commit the new files to the existing repository, keeping the same path and folder names. **Replace** the old files rather than creating a nested folder.
 3. Run the extension updater in SillyTavern and refresh the page (hard refresh if styles are cached). If the updater does not detect the release, reload the extension from SillyTavern's extension manager.
 4. Import `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json` separately if not already imported. If an earlier v3.4 is imported, **replace its PREG-02 entry** with the updated 150-day reference text to keep world rules aligned; avoid duplicate imports.
+
+## v0.3.15 — Initial ABO-dependent physiology fix
+
+The initial AI proposal must include a reasoned secondary sex for each unfixed adult character. The extension then derives genital anatomy and four fictional ABO defaults (gestation, insemination, menstruation, heat/rut) from that identity. It no longer treats a male sex label, TOP position, or missing card information as proof that gestation/menstruation/cycles are unavailable. Manually fixed facts and explicit card facts take precedence. The four defaults are suggestions, unchecked until approved. Editing secondary sex or anatomical type refreshes dependent proposals; older proposals with absent secondary sex require a fresh analysis. No change to the existing chat-global API profile or output token settings.
 
 ## v0.3.14 — Evidence-guided secondary proposal and global analysis settings
 

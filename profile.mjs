@@ -25,7 +25,7 @@ export const PROFILE_KOREAN_REFERENCE_VOCABULARY = Object.freeze([
 const PROFILE_KOREAN_VOCABULARY_NOTE = `\nKorean vocabulary reference (examples, NOT an approved list of preferences, NOT forced one-to-one translations):\n- ${PROFILE_KOREAN_REFERENCE_VOCABULARY.join('\n- ')}\nUse accurate, natural Korean suited to each card/persona and its context. Do not force a listed term into results without evidence or a valid general candidate. Do not automatically label a relationship trait as BDSM or sexual play. Differentiate exhibitionism, embarrassment, humiliation, and other independent interests. For newly generated tags, invent an appropriate Korean label based on meaning; do not rely on a fixed dictionary.\n`;
 export const PROFILE_SYSTEM = `You analyze two ADULT fictional character descriptions for an ABO SillyTavern profile setup. Return ONLY a JSON object (no markdown):
 LANGUAGE RULE: Write all human-readable analysis prose in fluent, natural KOREAN. This includes ALL descriptive field values (pheromoneScent, contactStyle, vocalStyle, speechStyle, anatomyDetail, inseminationOrgan), every field reason, every confirmed/latent preference reason, and every preference label. Do not copy full English source descriptions into the result as analysis. Refer faithfully to the source, including original proper nouns or brief verbatim quotations only when necessary. Do NOT translate or alter machine-readable JSON keys, enum values, preference IDs, or quoted original proper nouns.
-{"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"카드에 남성이라고 명시됨"},"secondary":null,"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","label":"언어적 도발","level":"liked","reason":"한국어로 작성한 카드 근거"}],"latent":[{"id":"some_interest","label":"문맥에 맞춘 한국어 명칭","reason":"한국어로 작성한 성격 기반 근거"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
+{"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"카드에 남성이라고 명시됨"},"secondary":{"value":"omega","basis":"suggested","reason":"상처를 숨기면서도 타인의 변화에 민감한 성향을 ABO 세계관에 맞춰 해석한 가상 제안"},"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","label":"언어적 도발","level":"liked","reason":"한국어로 작성한 카드 근거"}],"latent":[{"id":"some_interest","label":"문맥에 맞춘 한국어 명칭","reason":"한국어로 작성한 성격 기반 근거"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
 EXPLICIT SETUP SELECTIONS AND PHEROMONE SCENT:
 - Each char/user may include setupSelections from the initial STATUS panel. These values are MANUAL choices, NOT guesses, and take precedence over missing or conflicting secondary/sex facts in the original card. The UI already saves these choices; never silently change alpha/omega/beta to another type based on card omissions or stereotypes.
 - When setupSelections.secondary is "alpha" or "omega", OR this initial analysis proposes alpha/omega as secondary, and there is no established pheromoneScent (neither an explicit pheromone description in the source nor a nonempty setupSelections.pheromoneScent), INCLUDE a pheromoneScent field with a NEW, concise, plausible, Korean-language fragrance proposal. Build its scent notes from this character's individual characterization, manner, sensory imagery and atmosphere rather than defaulting to gender/ABO stereotypes. Use {"value":"한국어 향 조합","basis":"suggested","reason":"캐릭터의 어떤 분위기·묘사에서 향을 착안했는지"}. Do not mark a newly invented scent as explicit, and leave it unselected so the user can opt in.
@@ -39,12 +39,18 @@ FIRST INITIAL PROFILE ANALYSIS — CONTEXT-BASED SECONDARY GENDER AND COMPATIBLE
 - For anatomy, the EXTENSION—not model preference or stereotypes—assigns an arbitrary option from its allowed sex+secondary pool AFTER secondary is selected. If anatomy is explicitly present in the original card or fixed in setupSelections.anatomy, preserve it. Do not infer genital anatomy from sexual position, D/s, or sexual preferences. Leave suggested secondary and anatomy UNCHECKED until the user edits/approves them.
 - The secondary field is REQUIRED in the model output whenever not explicitly fixed. Include enough substantive Korean analysis reasoning in each suggested secondary field; leaving the value missing will result in a validation failure and a format retry. The model's anatomy value may be omitted when not fixed; the extension supplies the compatible anatomy candidate.
 - Generate a character-grounded pheromoneScent suggestion for ALPHA/OMEGA even if that secondary type is an AI suggestion, provided no explicit/manually fixed scent exists. Beta gets no inferred pheromone scent by default.
+ABO PHYSIOLOGY DEPENDENCY (CRITICAL — not an ordinary absence classifier):
+- Choose secondary FIRST using character personality/preferences, then choose genital anatomy from that sex+ABO pool; ONLY THEN derive gestate (ability to carry pregnancy), impregnate (ability to cause conception), menstruationEnabled, and cycleEnabled using the fictional ABO rule set. Never assign these four booleans simply because the card fails to mention pregnancy, menstruation or heat/rut.
+- A character explicitly described as male can still be a gestational or menstruating OMEGA in this setting, including the fictional male-only Omega anatomy (with distinct reproductive/menstrual routes). Their physical sex, sexual position (TOP/BOTTOM), D/s dynamics and personality do NOT determine these four flags. In particular TOP fixed is NOT evidence of ability to cause conception, and male is NOT evidence of infertility or absence of a cycle.
+- The extension derives the four default flags from the selected ABO and anatomy deterministically AFTER your response. Omit these four fields unless the character card/persona EXPLICITLY affirms or denies that specific ability/cycle (and quote the relevant fact in the reason). If explicitly stated, use basis:"explicit". Do NOT output false because no text exists.
+- Fictional default matrix: male Alpha=(gestate:false,impregnate:true,menstruation:false,cycleEnabled:true); male Beta=(false,true,false,false); male Omega=(true,false,true,true) for ALL its allowed anatomical options; female Alpha=(true,true,true,true); female Beta=(true,false,true,false); female Omega=(true,false,true,true). Alpha rut can be disabled by later user choice. These are ABO STORY defaults, not real physiology.
+- Suggested defaults are independently opt-in, NOT automatic modifications of the live profile. If you cannot verify a specific card fact, do not label a value as explicit.
 VOICE & SPEECH STYLE ANALYSIS (adult relationship / NSFW-capable profile):
 - vocalStyle (발성 성향) is primarily about *nonverbal and acoustic responses during closeness, tension, and potentially NSFW intimacy*, not a recap of everyday speaking manners. If the source supports it, propose a plausible pattern of breathing, sounds/moans, held-back vs freely expressed voice, pitch, volume, breathiness, and how audible reactions shift with excitement, embarrassment, vulnerability, or loss of composure. Ordinary voice timbre may be mentioned as a baseline but should NOT be the entire output. Differentiate the person's own vocal response from a preference for hearing someone else's voice.
 - speechStyle (언어 성향) describes *what and how the person speaks*: honorific vs casual register, address terms, teasing, requests, reassurance, questions, commands, sentence structure, and potential changes in intimate or NSFW situations. Polite speech or sentence endings belong here, NOT in vocalStyle. Include relationship-specific speech tendencies when grounded in the source; do not simply repeat their everyday manner of speech.
 - For BOTH char and user, derive context-specific possibilities from explicit traits and consistent behavioral cues, not from gender or genre stereotypes. If a detail is not explicitly stated, use basis:"suggested" and make the reason show the source-to-inference connection; never present a hypothetical NSFW vocalization or line of dialogue as an event that already occurred. Do not infer consent, acts, or preferences from a voice characteristic. When there is truly no basis for even a tentative pattern, omit the field rather than fabricating it.
 - Keep vocalStyle and speechStyle DISTINCT. Write each as a short, natural Korean proposal, not a full paragraph. The reference vocabulary is optional; it must not force sounds, kinks, or generic phrases onto every character.
-Other unsupported fields may be omitted or null; secondary is required when unset, while anatomy is assigned from the corresponding candidate pool. For populated fields use {"value":...,"basis":"explicit|suggested","reason":"..."}. Sex=male|female|nonbinary|unknown; secondary=alpha|beta|omega|unknown; anatomy=combined|vaginal_only|male_only|female_only|female_alpha_combined|custom. Other six descriptive fields must be concise strings. gestate/impregnate/menstruationEnabled/cycleEnabled are booleans.
+Other unsupported fields may be omitted or null; secondary is required when unset, while anatomy and the four dependent fertility/cycle defaults are supplied from the corresponding fictional ABO rules (unless explicitly established in source or manually locked). For populated fields use {"value":...,"basis":"explicit|suggested","reason":"..."}. Sex=male|female|nonbinary|unknown; secondary=alpha|beta|omega|unknown; anatomy=combined|vaginal_only|male_only|female_only|female_alpha_combined|custom. Other six descriptive fields must be concise strings. gestate/impregnate/menstruationEnabled/cycleEnabled are booleans.
 Explicit facts in sources must be distinguished from characterization-based guesses. Never infer sex, secondary gender, anatomy, or sexual position from a stereotype. Never create a preference as CONFIRMED unless explicitly stated. Offer 3-5 editable latent preference CANDIDATES for BOTH char and user. Prefer evidence-grounded suggestions; if insufficient evidence, return general neutral OPTIONAL candidates instead of claiming to know a preference. Do not claim user interests as confirmed from personality alone. Use source:"optional" for generic candidates and source:"suggested" for character-grounded interests. No more than five latent tags per role. Preference IDs are neutral snake_case strings for stable storage (English machine IDs only), not graphic text. For EACH preference candidate, also provide a separate short Korean "label" appropriate for an ADULT NSFW/relationship profile. Labels are editable presentation only; never replace or translate the ID itself. Do not translate the user-provided source examples yourself as a fixed mapping: use the reference vocabulary only for natural-language guidance and generate a context-sensitive label. Topics can include exhibitionism, embarrassment, humiliation, power_exchange, sensory_play and other card-grounded interests. For USER, only treat the persona's own words as confirmed; do not infer consent, decisions, or acts from assistant narration. This is a PROPOSAL, never an instruction to change actual state.${PROFILE_KOREAN_VOCABULARY_NOTE}`;
 export function anatomyDefault(sex,secondary){
  if(sex==='male'&&secondary==='omega')return 'combined';
@@ -157,6 +163,74 @@ function identityChoicePool(sex,secondary){
  if(sex==='female')return ['female_only'];
  return ['male_only','female_only','combined','vaginal_only'];
 }
+/** Fictional ABO-default flags, aligned with core.mjs person/replay defaults.
+ * Physical sex or sex-position by itself is never treated as an exclusion.
+ */
+export function deriveABOPhysiology(sex,secondary,anatomy){
+ const s=['male','female'].includes(sex)?sex:'unknown';
+ const a=VALID_ABO.includes(secondary)?secondary:'unknown';
+ if(a==='unknown')return null;
+ return {
+  gestate:a==='omega'||(s==='female'&&(a==='alpha'||a==='beta')),
+  impregnate:a==='alpha'||(s==='male'&&a==='beta'),
+  menstruationEnabled:a==='omega'||s==='female',
+  cycleEnabled:a!=='beta'
+ };
+}
+const PHYSIO_REASON={
+ gestate:{yes:'임신 가능한 생식 경로를 갖는 ABO 세계관 기본 설정',no:'현재 조합의 ABO 기본 생식 모델에는 임신 유지 경로가 설정되지 않음'},
+ impregnate:{yes:'수태를 유발할 수 있는 ABO 세계관 기본 설정',no:'현재 조합의 ABO 기본 생식 모델에는 수태 유발 능력이 설정되지 않음'},
+ menstruationEnabled:{yes:'이 ABO 유형에 설정된 월경·생식 주기를 따름',no:'이 ABO 유형의 기본 주기 규칙에는 월경이 포함되지 않음'},
+ cycleEnabled:{yes:'해당 ABO 유형의 히트·러트 주기 설정을 사용함',no:'베타 유형은 기본적으로 히트·러트 주기가 비활성화됨'}
+};
+/** Card-only explicit facts. Mere references to sex, TOP/BOTTOM, pregnancy as a genre
+ * term, or absence of mention are not evidence of any reproductive property. */
+function directPhysiologyFact(card,key,value){
+ const t=String(card||'');if(!t.trim())return false;
+ const facts={
+  gestate:{true:[/임신\s*(?:가능|할\s*수\s*있)/u,/가임\s*(?:가능|상태)/u,/can\s+(?:become|get)\s+pregnant/i],false:[/임신\s*(?:불가능|불가|할\s*수\s*없|하지\s*못)/u,/불임/u,/cannot\s+(?:become|get)\s+pregnant/i]},
+  impregnate:{true:[/수태\s*(?:가능|시킬\s*수\s*있)/u,/임신시킬\s*수\s*있/u,/can\s+impregnate/i],false:[/수태\s*(?:불가능|불가|시킬\s*수\s*없)/u,/임신시킬\s*수\s*없/u,/cannot\s+impregnate/i]},
+  menstruationEnabled:{true:[/월경\s*(?:있음|한다|가능|주기)/u,/생리\s*(?:있음|한다|주기)/u,/menstruat(?:es|ion)\s*[:=]\s*(?:true|yes)/i],false:[/월경\s*(?:없음|하지\s*않|불가능)/u,/무월경/u,/생리\s*(?:없음|하지\s*않)/u,/menstruat(?:es|ion)\s*[:=]\s*(?:false|no)/i]},
+  cycleEnabled:{true:[/히트\s*(?:있음|주기|발현)/u,/러트\s*(?:있음|주기|발현)/u,/heat\s*(?:cycle)?\s*[:=]\s*(?:true|yes)/i,/rut\s*(?:cycle)?\s*[:=]\s*(?:true|yes)/i],false:[/히트\s*(?:없음|미발현|비활성)/u,/러트\s*(?:없음|미발현|비활성)/u,/히트[·\/\s]*러트\s*(?:없음|비활성)/u,/heat\s*(?:cycle)?\s*[:=]\s*(?:false|no)/i,/rut\s*(?:cycle)?\s*[:=]\s*(?:false|no)/i]}
+ };
+ return facts[key]?.[String(value)]?.some(pattern=>pattern.test(t))||false;
+}
+/** Reconcile model physiology suggestions to the chosen ABO/anatomy.
+ * Manually fixed traits stay out of the proposal, and evidenced explicit card
+ * declarations are preserved. Every other value is computed, not guessed. */
+export function alignInitialPhysiologyProposal(record,{source={},manual={}}={}){
+ if(!record||!Array.isArray(record.fields))return record;
+ const byKey=key=>record.fields.find(f=>f.key===key);
+ const sex=(['male','female','nonbinary'].includes(manual.sex)?manual.sex:null)||(['male','female','nonbinary'].includes(source.sex)?source.sex:null)||byKey('sex')?.value||'unknown';
+ const secondary=manual.secondary|| (VALID_ABO.includes(source.secondary)?source.secondary:null)||byKey('secondary')?.value;
+ const anatomy=manual.anatomy||source.anatomy||byKey('anatomy')?.value;
+ const defaults=deriveABOPhysiology(sex,secondary,anatomy);
+ if(!defaults)return record;
+ const label=secondary.toUpperCase(),shape=anatomy||'미설정';
+ for(const key of booleanFields){
+  const existing=byKey(key);
+  if(Object.hasOwn(manual,key)){
+   if(existing)record.fields.splice(record.fields.indexOf(existing),1);
+   continue;
+  }
+  if(existing?.basis==='explicit' && typeof existing.value==='boolean' && directPhysiologyFact(source.card,key,existing.value)){
+   existing.checked=true;continue;
+  }
+  const value=defaults[key];
+  const reason=`${label} · ${shape}: ${PHYSIO_REASON[key][value?'yes':'no']}. 카드에 해당 능력이 명시되지 않아 세계관 규칙으로 제안했으며, 성별이나 성적 포지션만으로 판정하지 않았다.`;
+  const proposal={key,label:PROFILE_FIELDS[key],value,basis:'suggested',source:'abo_default',reason,checked:false};
+  if(existing)Object.assign(existing,proposal);else record.fields.push(proposal);
+ }
+ return record;
+}
+/** Ensure a stored older proposal cannot silently omit required secondary sex. */
+export function missingInitialSecondaryRoles(draft,{canon={},overrides={}}={}){
+ return ['char','user'].filter(role=>{
+  const source=canon[role]||{},fixed=overrides[role]||{};
+  if(VALID_ABO.includes(fixed.secondary)||VALID_ABO.includes(source.secondary))return false;
+  return !draft?.roles?.[role]?.fields?.some(f=>f.key==='secondary'&&VALID_ABO.includes(f.value));
+ });
+}
 export function completeInitialIdentityProposal(draft,{canon={},overrides={},seed='',existingDefaults={}}={}){
  if(!draft?.roles)return draft;
  for(const role of ['char','user']){
@@ -164,7 +238,7 @@ export function completeInitialIdentityProposal(draft,{canon={},overrides={},see
   const source=canon?.[role]||{},manual=overrides?.[role]||{};
   const fields=Array.isArray(record.fields)?record.fields:[];
   const byKey=key=>fields.find(item=>item.key===key);
-  const manualHas=key=>Object.hasOwn(manual,key);
+  const manualHas=key=>Object.hasOwn(manual,key)&&(key!=='secondary'||VALID_ABO.includes(manual[key]));
   const sourceValue=(key,valid)=>valid.includes(source[key])?source[key]:null;
   const takeSource=(key,valid)=>{
    if(manualHas(key)){
@@ -199,15 +273,17 @@ export function completeInitialIdentityProposal(draft,{canon={},overrides={},see
     source:'ai_analysis',checked:false
    });
   }
-  const sex=manual.sex||source.sex||(byKey('sex')?.value)||'unknown';
+  const sex=(['male','female','nonbinary'].includes(manual.sex)?manual.sex:null)||(['male','female','nonbinary'].includes(source.sex)?source.sex:null)||byKey('sex')?.value||'unknown';
   const knownAnatomy=takeSource('anatomy',VALID_ANATOMY);
   if(!manualHas('anatomy')&&!knownAnatomy){
    const pool=identityChoicePool(sex,chosenABO);
    const entry={key:'anatomy',label:PROFILE_FIELDS.anatomy,value:pool[seededIndex(seed,`${role}:${source.id||source.name||''}:anatomy`,pool.length)],basis:'suggested',reason:'원문 카드·페르소나에 성기 형태가 없어 기존 가상 신체 유형 중 임의 배정했다. 확정 정보가 아니다.',source:'arbitrary',checked:false};
    const existing=byKey('anatomy');if(existing)Object.assign(existing,entry);else fields.push(entry);
   }
+  // Derive all dependent flags only AFTER ABO + compatible anatomy are known.
+  alignInitialPhysiologyProposal(record,{source,manual});
   // Present the identity choices before lengthy interaction/preference proposals.
-  const order=['sex','secondary','anatomy'];
+  const order=['sex','secondary','anatomy','gestate','impregnate','menstruationEnabled','cycleEnabled'];
   record.fields=fields.map((f,i)=>({...f,__order:i})).sort((a,b)=>{
    const ai=order.indexOf(a.key),bi=order.indexOf(b.key);
    return (ai<0?100+ a.__order:ai)-(bi<0?100+b.__order:bi);

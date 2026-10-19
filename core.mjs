@@ -53,11 +53,11 @@ export function normalizeSex(raw){const v=String(raw||'').toLowerCase().trim();r
 export function normalizeABO(raw){const v=String(raw||'').toLowerCase().trim();return ['alpha','알파','a'].includes(v)?'alpha':['beta','베타','b'].includes(v)?'beta':['omega','오메가','o'].includes(v)?'omega':'unknown';}
 export function inferExplicit(text){
  const s=String(text||'').slice(0,13000);
- const sexMatches=[...s.matchAll(/(?:^|[\s\n\[:(])(?:gender|성별|sex)\s*[:：=]\s*(male|female|남성|여성|남자|여자|nonbinary|논바이너리)\b/ig)];
- const aboMatches=[...s.matchAll(/(?:^|[\s\n\[:(])(?:secondary\s*(?:sex|gender)|제2성별|2차\s*성별|abo)\s*[:：=]\s*(alpha|beta|omega|알파|베타|오메가)\b/ig)];
- const shapeMatches=[...s.matchAll(/(?:anatomy|신체\s*유형|생식기\s*유형)\s*[:：=]\s*(combined|vaginal_only|male_only|복합형|컨트보이형|남성\s*생식기형)/ig)];
+ const sexMatches=[...s.matchAll(/(?:^|[\s\n\[:(])(?:gender|성별|sex)\s*[:：=]\s*(male|female|남성|여성|남자|여자|nonbinary|논바이너리)(?=$|[^\p{L}\p{N}_])/igu)];
+ const aboMatches=[...s.matchAll(/(?:^|[\s\n\[:(])(?:secondary\s*(?:sex|gender)|제2성별|2차\s*성별|abo)\s*[:：=]\s*(alpha|beta|omega|알파|베타|오메가)(?=$|[^\p{L}\p{N}_])/igu)];
+ const shapeMatches=[...s.matchAll(/(?:anatomy|신체\s*유형|생식기\s*유형)\s*[:：=]\s*(female_alpha_combined|female_only|combined|vaginal_only|male_only|복합형|컨트보이형|남성\s*생식기형|여성\s*생식기형|여성\s*알파\s*복합형)/ig)];
  const shape=shapeMatches.length?shapeMatches.at(-1)[1].toLowerCase():null;
- return {sex:sexMatches.length?normalizeSex(sexMatches.at(-1)[1]):'unknown',secondary:aboMatches.length?normalizeABO(aboMatches.at(-1)[1]):'unknown',anatomy:shape===null?null:shape==='컨트보이형'?'vaginal_only':shape.includes('남성')?'male_only':shape==='복합형'?'combined':shape};
+ return {sex:sexMatches.length?normalizeSex(sexMatches.at(-1)[1]):'unknown',secondary:aboMatches.length?normalizeABO(aboMatches.at(-1)[1]):'unknown',anatomy:shape===null?null:shape==='컨트보이형'?'vaginal_only':shape.includes('여성')&&shape.includes('복합')?'female_alpha_combined':shape.includes('여성')?'female_only':shape.includes('남성')?'male_only':shape==='복합형'?'combined':shape};
 }
 export function person(id,name,seed,canon={}){
  const sex=normalizeSex(canon.sex);
