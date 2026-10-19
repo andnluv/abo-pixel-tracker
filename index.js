@@ -1,6 +1,6 @@
 import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
-import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
+import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,completeInitialIdentityProposal,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
 import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
@@ -10,7 +10,9 @@ import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPerson
 import {normalizeSetupOutputTokens,MIN_SETUP_OUTPUT_TOKENS,MAX_SETUP_OUTPUT_TOKENS} from './setup-options.mjs';
 import {buildProfileSetupInput} from './profile-setup-input.mjs';
 import {MAIN_TARGET,npcCanon,discoverNpcProfiles,namedTarget,sharedEvent,combineNpcRecords} from './npc-tracking.mjs';
-import {getRequestHeaders} from '/script.js';
+import {getRequestHeaders,saveSettingsDebounced} from '/script.js';
+import {extension_settings} from '/scripts/extensions.js';
+import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from './global-analysis-settings.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
@@ -21,6 +23,17 @@ const html=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':
 const el=(id)=>document.getElementById(id);
 const fmt=(n)=>Number.isFinite(n)?Math.round(n*10)/10:0;
 function log(...v){console.log('[ABO Pixel]',...v);}
+function sharedAnalysisSettings(){
+ const legacy=meta(false)?.config||{};
+ const {shared,created}=ensureSharedAnalysisSettings(extension_settings,legacy,DEFAULT_CONFIG);
+ if(created)saveSettingsDebounced();
+ return shared;
+}
+function analysisConfig(){return {...(meta(false)?.config||DEFAULT_CONFIG),...sharedAnalysisSettings()};}
+function saveSharedAnalysisSetting(key,value){
+ setSharedAnalysisSetting(extension_settings,key,value,meta(false)?.config||{},DEFAULT_CONFIG);
+ saveSettingsDebounced();
+}
 function connectionValue(config){return String(config?.analysisConnection||'');} // empty = current connection
 function supportedProfiles(){
  try{return ConnectionManagerRequestService.getSupportedProfiles()||[];}
@@ -46,7 +59,7 @@ function directEndpoint(raw){
  return url.toString();
 }
 async function analysisRequest(systemPrompt,prompt,maxTokens=2200){
- const config=meta()?.config||DEFAULT_CONFIG, chosen=connectionValue(config);
+ const config=analysisConfig(), chosen=connectionValue(config);
  if(!chosen){
   if(typeof S().generateRaw!=='function')throw new Error('현재 SillyTavern 연결의 generateRaw가 없습니다');
   return extractedText(await S().generateRaw({systemPrompt,prompt,responseLength:maxTokens}));
@@ -250,11 +263,12 @@ async function initialProfileAnalyze(){
  const chatId=S().chatId, originalPersona=m.userPersonaIdentity;
  try{
   const setupInput=buildProfileSetupInput(effectiveCanon(m),effectiveOverrides(m));
-  const setupMax=normalizeSetupOutputTokens(m.config.setupMaxTokens);
+  const setupMax=normalizeSetupOutputTokens(sharedAnalysisSettings().setupMaxTokens);
   let draft;
   try{
    const result=await analysisRequest(PROFILE_SYSTEM,setupInput,setupMax);
    draft=normalizeSetupProposal(result,chatId);
+   completeInitialIdentityProposal(draft,{canon:effectiveCanon(m),overrides:effectiveOverrides(m),seed:`${m.seed}:${targetId}:${originalPersona}`});
   }catch(firstError){
    // Only malformed model output gets a format retry; API failures must retain their actual cause.
    if(!(firstError instanceof SetupJsonFormatError))throw firstError;
@@ -263,6 +277,7 @@ async function initialProfileAnalyze(){
    try{
     const retry=await analysisRequest(brief,setupInput,setupMax);
     draft=normalizeSetupProposal(retry,chatId);
+    completeInitialIdentityProposal(draft,{canon:effectiveCanon(m),overrides:effectiveOverrides(m),seed:`${m.seed}:${targetId}:${originalPersona}`});
    }catch(secondError){
     if(secondError instanceof SetupJsonFormatError)throw new Error(`초기 분석 JSON이 2회 연속 불완전합니다. 실제 모델 출력 한도와 분석 연결을 확인하세요. (재시도: ${secondError.message})`,{cause:secondError});
     throw secondError;
@@ -270,6 +285,7 @@ async function initialProfileAnalyze(){
   }
   syncCanon();
   if(S().chatId!==chatId||m.userPersonaIdentity!==originalPersona||selectedNpcId(m)!==targetId){setStatus('채팅/페르소나 변경으로 분석 결과 폐기');return;}
+  // AI secondary choice is preserved; compatible anatomy is assigned from the permitted pool.
   draft.personaIdentity=originalPersona;draft.targetId=targetId;
   // Models can be wrong. Explicit manual settings always start unchecked/locked.
   for(const role of ['char','user']){
@@ -291,7 +307,7 @@ function renderSetup(){
  const m=meta(false);if(!m)return '';
  const draft=m.initialProposal;
  const hint='<p class="abop-muted">카드·페르소나의 확정 정보와 성격 기반 제안을 구분합니다. 체크한 항목만 실제 프로필에 적용됩니다. 수동으로 이미 고정한 항목은 보호됩니다.</p>';
- if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity||draft.targetId!==selectedNpcId(m))return `<section class="abop-frame"><header>◇ 초기 프로필 설정</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 기존 상태는 분석만으로 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
+ if(!draft||draft.chatId!==S().chatId||draft.personaIdentity!==m.userPersonaIdentity||draft.targetId!==selectedNpcId(m))return `<section class="abop-frame"><header>◇ 초기 프로필 설정</header><h3 class="abop-title">초기 프로필 통합 분석</h3>${hint}<p>신체 구조·생식 능력·페로몬·접촉·발성·언어와 친밀 취향을 한 번에 분석해 제안합니다. 카드와 수동 설정에 없는 제2성별은 성격·취향을 분석해 제안하고, 성기 형태는 해당 유형의 후보군에서 배정합니다. 기존 상태는 선택해 적용하기 전에는 변경되지 않습니다.</p><button data-action="init">CHAR + USER 분석 제안 만들기</button></section>`;
  let out=`<section class="abop-frame"><header>◇ 초기 프로필 제안 <small>미적용 초안</small></header>${hint}
  <div class="abop-actions"><button data-action="init">다시 분석</button><button data-action="discardProposal">제안 버리기</button></div></section>`;
  for(const role of ['char','user']){
@@ -300,15 +316,15 @@ function renderSetup(){
   <p class="abop-muted">왼쪽 체크 = 적용 여부 · 제안 내용을 자유롭게 수정할 수 있습니다.</p><div class="abop-proposal-fields">`;
   for(const [i,f] of d.fields.entries()){
    const disabled=Object.hasOwn(own,f.key),checked=f.checked&&!disabled;
-   const inferredSex=d.fields.find(x=>x.key==='sex')?.value||state?.people[role]?.sex||'unknown';
-   const inferredABO=d.fields.find(x=>x.key==='secondary')?.value||state?.people[role]?.secondary||'unknown';
+   const inferredSex=own.sex||d.fields.find(x=>x.key==='sex')?.value||state?.people[role]?.sex||'unknown';
+   const inferredABO=own.secondary||d.fields.find(x=>x.key==='secondary')?.value||state?.people[role]?.secondary||'unknown';
    const choices=f.key==='anatomy'?anatomyChoices(inferredSex,inferredABO):PROPOSAL_SELECT[f.key];
    const options=choices&&choices.some(([v])=>v===f.value)?choices:choices?[...choices,[f.value,'제안값: '+f.value]]:null;
    const edit=typeof f.value==='boolean'?`<select data-proposal-value="${role}" data-i="${i}">${choiceHTML([['true','있음'],['false','없음']],f.value)}</select>`:
     options?`<select data-proposal-value="${role}" data-i="${i}">${choiceHTML(options,f.value)}</select>`:
     `<input type="text" data-proposal-value="${role}" data-i="${i}" value="${html(f.value)}" />`;
    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-proposal-check="${role}" data-i="${i}" ${checked?'checked':''} ${disabled?'disabled':''}/><span class="abop-sr-only">${html(f.label)} 적용</span></label>
-    <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'카드 명시':'분석 제안'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
+    <div class="abop-proposal-content"><div class="abop-rowhead"><b>${html(f.label)}</b><span class="abop-basis ${f.basis}">${f.basis==='explicit'?'카드 명시':f.source==='arbitrary'?'후보군 배정':'성격·취향 분석 제안'}</span>${disabled?'<span class="abop-basis">수동 고정</span>':''}</div>${edit}<small>${html(f.reason||'카드·페르소나 분석')}</small></div></div>`;
   }
   out+=`</div><h3 class="abop-setup-subtitle">친밀 성향·취향 후보 <span>잠재 후보 3~5개 · 확정 후보 별도</span></h3>`;
   for(const [kind,list] of [['confirmed',d.confirmed],['latent',d.latent]]){
@@ -369,24 +385,25 @@ function selectedSection(){
  <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
  if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html(p.bondWith||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
  if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
+ const shared=sharedAnalysisSettings();
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
   <label class="abop-fieldlabel">색상 테마<select data-theme-choice>${choiceHTML([['auto','시스템 설정에 맞춤'],['light','라이트 · 밝은 테마'],['dark','다크 · 어두운 테마']],m.config.uiTheme||'auto')}</select></label>
-  <p class="abop-muted">화면 대비를 높이고 산세리프 글꼴을 적용했습니다. 설정은 이 채팅에 저장됩니다.</p><hr/>
+  <p class="abop-muted">화면 테마와 시뮬레이션 설정은 채팅별로 저장됩니다. 분석 연결·토큰 값은 모든 채팅에서 공통으로 사용합니다.</p><hr/>
   <div class="abop-title">분석 모델 연결</div>
   <label class="abop-fieldlabel">분석에 사용할 API / 저장 연결 프로필
-  <select id="abop-connection" data-connection>${connectionOptions(m.config)}</select></label>
+  <select id="abop-connection" data-connection>${connectionOptions(shared)}</select></label>
   <p class="abop-muted">선택하지 않으면 현재 SillyTavern 연결을 사용합니다. 저장된 프로필은 메인 RP 연결을 전환하지 않고 공식 프로필 요청 서비스로 별도 호출합니다. 연결 테스트에서 인증 오류가 나면 연결 관리자에서 그 프로필을 활성화한 상태로 업데이트하세요.</p>
-  ${connectionValue(m.config)==='custom'?`<div class="abop-api-fields">
-    <label class="abop-fieldlabel">OpenAI 호환 API 주소<input type="url" data-custom="customApiUrl" value="${html(m.config.customApiUrl||'')}" placeholder="https://api.example.com/v1" /></label>
-    <label class="abop-fieldlabel">모델 이름<input type="text" data-custom="customModel" value="${html(m.config.customModel||'')}" placeholder="model-id" /></label>
+  ${connectionValue(shared)==='custom'?`<div class="abop-api-fields">
+    <label class="abop-fieldlabel">OpenAI 호환 API 주소<input type="url" data-custom="customApiUrl" value="${html(shared.customApiUrl||'')}" placeholder="https://api.example.com/v1" /></label>
+    <label class="abop-fieldlabel">모델 이름<input type="text" data-custom="customModel" value="${html(shared.customModel||'')}" placeholder="model-id" /></label>
     <label class="abop-fieldlabel">API 키 (메모리에만 저장)<input type="password" data-secret placeholder="${sessionApiKey?'등록됨 · 바꾸려면 새 키 입력':'API 키 입력'}" autocomplete="off" /></label>
     <p class="abop-muted">키는 채팅·설정·내보내기에 저장하지 않습니다. 새로고침하면 다시 입력해야 합니다. 직접 API 호출은 제공 업체의 브라우저 CORS 허용이 필요하며, 지원하지 않으면 저장된 연결 프로필을 사용하세요.</p>
     <button data-action="clearKey">임시 API 키 지우기</button>
   </div>`:''}
-  <label class="abop-fieldlabel">초기 셋업 최대 출력 토큰<input type="number" min="${MIN_SETUP_OUTPUT_TOKENS}" max="${MAX_SETUP_OUTPUT_TOKENS}" step="1" data-custom="setupMaxTokens" value="${html(normalizeSetupOutputTokens(m.config.setupMaxTokens))}" /></label>
+  <label class="abop-fieldlabel">초기 셋업 최대 출력 토큰<input type="number" min="${MIN_SETUP_OUTPUT_TOKENS}" max="${MAX_SETUP_OUTPUT_TOKENS}" step="1" data-custom="setupMaxTokens" value="${html(normalizeSetupOutputTokens(shared.setupMaxTokens))}" /></label>
   <p class="abop-muted">모델·제공업체의 실제 최대 출력 토큰은 다를 수 있습니다. 현재 연결 사용 시에는 SillyTavern의 현재 연결에 응답 길이 값을 전달합니다.</p>
-  <button data-action="refreshProfiles">프로필 목록 새로고침</button><button data-action="testConnection">분석 연결 테스트</button>
+  <button data-action="refreshProfiles">프로필 목록 새로고침</button><button data-action="testConnection">분석 연결 테스트</button><p class="abop-muted">연결 프로필·직접 API 주소/모델·초기 분석 토큰 값은 전 채팅 공통으로 보존됩니다. API 키는 보안상 브라우저 메모리에만 유지되며 새로고침하면 사라집니다.</p>
   <hr/><label class="abop-check"><input type="checkbox" data-config="enabled" ${m.config.enabled?'checked':''}/> 확장 활성화</label><label class="abop-check"><input type="checkbox" data-config="autoAnalyze" ${m.config.autoAnalyze?'checked':''}/> 응답마다 별도 분석 호출 (추가 API 비용 발생 가능)</label><label class="abop-check"><input type="checkbox" data-config="injectState" ${m.config.injectState?'checked':''}/> 다음 RP에 내부 상태 주입</label><label class="abop-check"><input type="checkbox" data-config="hideTruth" ${m.config.hideTruth?'checked':''}/> 화면에서 임신 결과 숨기기 (모델 주입에는 유지)</label>
   <label class="abop-check"><input type="checkbox" data-config="pregnancyEnabled" ${m.config.pregnancyEnabled!==false?'checked':''}/> 임신 시뮬레이션 ON/OFF (채팅별)</label>
   <p class="abop-muted">OFF: 새 임신 확률·진행·RP 주입을 계산하지 않습니다. 사건 기록은 유지하므로 다시 ON이면 기존 사건까지 결정적 난수로 재계산됩니다. 이미 진행 중인 채팅에서는 먼저 백업을 권장합니다.</p>
@@ -422,7 +439,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.12</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.14</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}<footer id="abop-statusline">${html(status)}</footer></main></div></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -458,16 +475,16 @@ async function handlePanelChange(e){
   currentRoleOverrides(m,id)[field]=value;
  }else if(t.dataset.config){m.config[t.dataset.config]=!!t.checked;
  }else if(t.hasAttribute('data-connection')){
-  m.config.analysisConnection=t.value;
+  saveSharedAnalysisSetting('analysisConnection',t.value);
  }else if(t.dataset.custom){
-  m.config[t.dataset.custom]=t.dataset.custom==='setupMaxTokens'?normalizeSetupOutputTokens(t.value):t.value.trim();
+  saveSharedAnalysisSetting(t.dataset.custom,t.dataset.custom==='setupMaxTokens'?normalizeSetupOutputTokens(t.value):t.value.trim());
  }else if(t.hasAttribute('data-secret')){
   // Never write keys to metadata, world info, backups, or console logs.
   sessionApiKey=t.value.trim();t.value='';setStatus(sessionApiKey?'임시 API 키가 메모리에 등록됨':'임시 API 키가 비어 있음');
  }else if(t.dataset.rate){m.config.rate[t.dataset.rate]=clamp(Number(t.value)/100,0,1);
  }else if(t.dataset.probability){const key=t.dataset.probability;if(!['oralContraceptiveEffectiveness','emergencyContraceptiveReduction','longSuppressantSuccess','sideEffectScale'].includes(key))return;const n=Number(t.value),max=key==='sideEffectScale'?300:100;if(!Number.isFinite(n)||n<0||n>max)return setStatus(`확률 설정 범위: 0~${max}%`);m.config[key]=n/100;
  }else return;
- const saved=await persist();refresh();
+ const saved=(t.hasAttribute('data-connection')||t.dataset.custom)?true:await persist();refresh();
  if(t.dataset.person)setStatus(saved?`${t.dataset.person.toUpperCase()} ${t.dataset.field==='secondary'?'ABO':'설정'} 변경 자동 저장 완료`:'채팅 설정 저장 실패 · 콘솔 확인');
 }
 async function addManualEvents(events){

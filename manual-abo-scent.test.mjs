@@ -31,7 +31,7 @@ test('alpha/omega get independent Korean pheromone scent proposals; beta and ran
  assert.match(PROFILE_SYSTEM,/INCLUDE a pheromoneScent field/);
  assert.match(PROFILE_SYSTEM,/basis":"suggested/);
  assert.match(PROFILE_SYSTEM,/manual beta selection, do NOT invent/);
- assert.match(PROFILE_SYSTEM,/random\/seeded ABO type/);
+ assert.match(PROFILE_SYSTEM,/provisional seeded STATUS display value/);
 });
 
 test('scent proposed by the model is unchecked and not applied to live state until user approval',()=>{

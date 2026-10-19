@@ -5,10 +5,11 @@ import {readFileSync} from 'node:fs';
 import * as core from '../core.mjs';
 import * as npc from '../npc-tracking.mjs';
 import {anatomyChoices,anatomyDefault} from '../profile.mjs';
+import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from '../global-analysis-settings.mjs';
 function harness(config={}){
  const canon={char:{name:'성인 캐릭터',sex:'male',secondary:'omega'},user:{name:'페르소나',sex:'female',secondary:'alpha'}};
  const chat={chatId:'ui-render',chatMetadata:{},characters:[],chat:[],saveMetadata:async()=>{},setExtensionPrompt:()=>{}};
- const sandbox={...core,...npc,anatomyChoices,anatomyDefault,DEFAULT_CONFIG:core.DEFAULT_CONFIG,VERSION:core.VERSION,
+ const sandbox={...core,...npc,anatomyChoices,anatomyDefault,ensureSharedAnalysisSettings,setSharedAnalysisSetting,extension_settings:{},saveSettingsDebounced:()=>{},DEFAULT_CONFIG:core.DEFAULT_CONFIG,VERSION:core.VERSION,
   SillyTavern:{getContext:()=>chat},user_avatar:'',
   readCurrentPersona:()=>({name:'USER',card:'',sex:'unknown'}),personaIdentity:()=> 'p1',syncPersonaProfile:()=>({changed:false,updated:false}),filterRowsByPersona:(x)=>x,
   choiceHTML:()=>'',MIN_SETUP_OUTPUT_TOKENS:512,MAX_SETUP_OUTPUT_TOKENS:65536,normalizeSetupOutputTokens:(x)=>x||5000,ConnectionManagerRequestService:{getSupportedProfiles:()=>[]},

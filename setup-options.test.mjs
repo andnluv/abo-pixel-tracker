@@ -15,7 +15,7 @@ test('token setting accepts lower and higher valid numbers and caps only extreme
 });
 test('current SillyTavern connection receives requested responseLength for raw analysis',()=>{
  assert.match(index,/generateRaw\(\{systemPrompt,prompt,responseLength:maxTokens\}\)/);
- assert.match(index,/const setupMax=normalizeSetupOutputTokens\(m\.config\.setupMaxTokens\)/);
+ assert.match(index,/const setupMax=normalizeSetupOutputTokens\(sharedAnalysisSettings\(\)\.setupMaxTokens\)/);
  assert.doesNotMatch(index,/Math\.min\(12000/);
 });
 test('only JSON-format errors trigger fallback retry, not API errors',()=>{

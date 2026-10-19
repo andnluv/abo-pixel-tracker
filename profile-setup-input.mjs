@@ -6,7 +6,7 @@ export function buildProfileSetupInput(canon={},overrides={}){
   const source=canon?.[role]||{};
   const fixed=overrides?.[role]||{};
   const setupSelections={};
-  for(const key of ['sex','secondary','pheromoneScent']){
+  for(const key of ['sex','secondary','anatomy','anatomyDetail','pheromoneScent']){
    if(Object.hasOwn(fixed,key))setupSelections[key]=fixed[key];
   }
   return {...source,setupSelections};

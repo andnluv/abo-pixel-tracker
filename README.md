@@ -1,4 +1,4 @@
-# 그날의 사정 v0.3.12 (Beta)
+# 그날의 사정 v0.3.14 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -12,6 +12,13 @@ This repository must have `manifest.json`, `index.js`, `style.css`, `core.mjs`, 
 2. If an earlier version is installed, upload/commit the new files to the existing repository, keeping the same path and folder names. **Replace** the old files rather than creating a nested folder.
 3. Run the extension updater in SillyTavern and refresh the page (hard refresh if styles are cached). If the updater does not detect the release, reload the extension from SillyTavern's extension manager.
 4. Import `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json` separately if not already imported. If an earlier v3.4 is imported, **replace its PREG-02 entry** with the updated 150-day reference text to keep world rules aligned; avoid duplicate imports.
+
+## v0.3.14 — Evidence-guided secondary proposal and global analysis settings
+
+- If neither card nor manual configuration sets alpha/beta/omega, the FIRST model-based CHAR/USER profile analysis proposes a secondary type from established personality, interactions and preference evidence, with a written Korean rationale. It is an unchecked creative interpretation, not an observed card fact. Seeded tracker placeholders NEVER override this model proposal; missing proposals trigger the model-format retry.
+- Genital form is separately assigned from the allowed candidate pool for the selected sex+ABO combination. Existing manual and explicit card statements win.
+- Saved analysis connection/profile, direct API URL/model, and initial analysis max output tokens now persist through SillyTavern's extension-wide settings across all chats. On first access, prior chat-specific values are migrated once. API keys remain RAM-only (not persisted) by design.
+- All other character, timeline, pregnancy, cycle and per-chat simulation state remain chat-local.
 
 ## v0.3.12 — Revert day selector · 120–180 day gestation (default 150)
 
@@ -113,3 +120,9 @@ ABO Pixel Tracker is implemented separately; it does not include or modify Koofe
 - The initial profile analysis now receives explicit STATUS-panel choices. When Alpha/Omega is manually selected but no established pheromone is present, the model is instructed to propose a tailored Korean-language scent, unchecked by default.
 - Do not invent pheromone scents for manually selected Beta or unspecified characters. Preserve existing user-fixed scents and prefer explicit source facts. Suggestions are only stored after the user checks them and applies the proposal.
 - The v0.3.7 token/JSON fixes, preference candidate counts, inference thresholds, and internal IDs remain unchanged.
+
+
+### First-analysis ABO and anatomy proposals (v0.3.14)
+- The AI suggests ABO type based on the existing personality, established preferences, and narrative characterization. It does not reuse the status panel's pre-analysis seeded value.
+- Genital form alone uses a stable candidate-pool assignment based on sex and the selected ABO. Explicit card facts and manual settings always take precedence.
+- Both are editable suggestions and remain unapplied until selected.
