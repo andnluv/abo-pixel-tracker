@@ -69,7 +69,13 @@
         1,
         3
       ],
-      "female_alpha_ovulation": "0_to_24_hours_before_or_after_rut"
+      "female_alpha_ovulation": "0_to_24_hours_before_or_after_rut",
+      "rut_modes": [
+        "enabled",
+        "disabled",
+        "absent",
+        "unset"
+      ]
     },
     "menstruation": {
       "days": [
@@ -147,15 +153,33 @@
   "bond": {
     "permanent_mark_is_bond": true,
     "tiered_strength": false,
-    "persists_until_death": true,
+    "persists_until_death": false,
     "effects": {
       "partner_scent_sensitivity": 20,
-      "other_scent_sensitivity": -15,
+      "other_scent_sensitivity": -30,
       "other_scent_discomfort": 15,
-      "heat_separation_stress": 15,
+      "heat_separation_stress": 20,
       "partner_approach_pp": 8,
-      "heat_partner_search_pp": 12
-    }
+      "heat_partner_search_pp": 12,
+      "baseline_separation_stress": 10,
+      "heat_or_rut_separation_bonus": 20,
+      "cycle_bonus_stack_cap": 20
+    },
+    "default_duration": "until death unless removed by surgery or documented drug adverse effect",
+    "formation": "Alpha bites Omega nape (pheromone gland); no mutual explicit consent requirement",
+    "permanent_mark_on": "omega only",
+    "asymmetric_multi_bond_default": false,
+    "asymmetric_multi_bond_toggle": "asymmetricBond",
+    "limits": {
+      "off": "one Alpha per Omega, one Omega per Alpha; effects on both",
+      "on": "one Alpha per Omega, multiple Omegas per Alpha; pheromone and separation effects Omega only"
+    },
+    "off_switch_preserves_historical_bonds": true,
+    "bond_loss_causes": [
+      "surgery",
+      "drug_adverse",
+      "death"
+    ]
   },
   "drugs": {
     "baseline_tolerance": 0,

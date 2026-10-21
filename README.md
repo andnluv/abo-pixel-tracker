@@ -1,3 +1,9 @@
+## v0.3.22 — Disabled cycle presentation fix
+
+- Characters with `cycle.enabled=false` no longer display dormant heat/rut interval, prodrome, active, or recovery values. Their cycle panel and status chip show that no heat/rut cycle is active.
+- The continuity prompt reports `cycle=none (disabled)` and drug-induced activation does not turn a disabled cycle into an active phase.
+- Manual cycle overrides, non-ABO menstruation flags (including female Beta), medication records, all other tracking data, and NPC scanning remain unchanged.
+
 ## v0.3.21 — Two-stage World Info NPC discovery
 
 Stage 1 finds NPC names from Korean/English labels, name fields, profile headings, and lists of multiple characters. Stage 2 is an **opt-in** AI-assisted search of unclassified but potentially relevant entries and group entries; it sends the selected excerpts through the configured analysis connection and may cost tokens/money. Every AI-suggested NPC must have an exact source quote containing the name; users review the source excerpt and manually choose an NPC to track. Long scans progress in batches of eight API requests per button click. There are no age filters for discovery. Original World Info and existing chat records are not modified. This does not guarantee finding every character, and unreadable World Info sources cannot be analyzed.
@@ -5,7 +11,7 @@ Stage 1 finds NPC names from Korean/English labels, name fields, profile heading
 ### v0.3.17: Mobile panel layout fix
 Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
 
-# 그날의 사정 v0.3.21 (Beta)
+# 그날의 사정 v0.3.27 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -45,7 +51,7 @@ The display name is now **그날의 사정**, while the repository and chat stor
 
 A fictional `oral_contraceptive` medication event reduces qualifying exposure risk during its active 24h window (85% default), with editable efficacy. Emergency contraceptive reduction (75% default within 72 hours) and long suppressants' ovulation suppression chance (90% default) are now configurable; both preserve the original deterministic roll. Side-effect results have reproducible fictional symptom labels independent of medication tolerance and can be reviewed under Cycles. Confirmed doses can be recorded manually. The continuity prompt now includes confirmed vs latent preferences and recent scene tags to discourage generic repetitive roleplay while preserving user agency. Single selected-NPC tracking remains; simultaneous multi-partner pregnancy calculations are not implemented.
 
-All rates and medication effects are **fictional world-building values**, not medical information. No external writing or proprietary source code has been copied. Run `npm run check && npm test`; integration testing in a real SillyTavern instance is still pending.
+All rates and medication effects are **fictional world-building values**, not medical information. No external writing or proprietary source code has been copied. Run `npm run check` for syntax verification. Test files are not bundled in this release; integration testing in a real SillyTavern instance is still pending.
 
 ## v0.3.10 — Pregnancy tab wording
 
@@ -146,3 +152,21 @@ ABO Pixel Tracker is implemented separately; it does not include or modify Koofe
 - Coalesce identical NPCs found in both embedded and linked World Info, using corroborated descriptions or group aliases rather than display name alone.
 - Keep source provenance and existing persisted NPC target IDs and histories unchanged.
 - Avoid resubmitting identical World Info excerpts to the optional AI NPC discovery pass. Different people who share a name remain distinct when their profiles do not agree.
+
+
+## v0.3.24 Natural-language time synchronization
+Manual history synchronization now detects Korean and English time expressions. Exact durations can be selected in the preview; vague time-of-day, approximate, and calendar-relative expressions are flagged for review without automatically adding an invented number of hours.
+
+
+## v0.3.25 — Bond rules / 각인 규칙
+
+- Config checkbox: asymmetricBond (OFF by default). OFF: one-to-one bonds with bilateral effects; ON: Alpha may have multiple Omegas, each Omega only one Alpha, with numerical pheromone/separation effects on Omegas only.
+- Alpha biting the pheromone-sensitive nape establishes bond; permanent visible mark only on Omega. No mutual-consent requirement for event validation.
+- Effects +20 / -30 / +15 / +20. Bond normally persists until death; `bond_loss` event with `cause: surgery` or `drug_adverse` can remove it.
+- Existing multiple bonds created while ON are preserved when switching OFF; new bonds follow OFF exclusivity. NPCs require stable registered IDs and not all automatic discovery paths are covered.
+
+
+See BOND_DESIGN_KO.md for the consolidated bond, rut and semantic-evidence rules and implementation limits.
+
+## v0.3.27 — Semantic bond evidence gate
+Completed nape bites and explicit completed-bond narration can be recognized without a literal pheromone-gland keyword. Evidence is classified confirmed / uncertain / not_established; only confirmed new acts are persisted. Flashbacks, hypothetical bites, and negation are excluded. Core still validates Alpha -> Omega, nape and event flags.

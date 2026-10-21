@@ -1,7 +1,27 @@
 /* The classifier is intentionally read-only. All random decisions occur in core.mjs. */
-const ALLOWED=['time_advance','heat_start','rut_start','ovulation','bond','medication','exposure','pregnancy_reveal','delivery','pregnancy_end','preference','scene'];
+const ALLOWED=['time_advance','heat_start','rut_start','ovulation','bond','bond_loss','medication','exposure','pregnancy_reveal','delivery','pregnancy_end','preference','scene'];
 const DRUGS=['oral_suppressant','long_suppressant','emergency_suppressant','scent_blocker','symptom_inducer','cycle_inducer','unlicensed_mixture','emergency_contraceptive','oral_contraceptive'];
+const validPersonId=id=>['char','user'].includes(id)||/^npc:[a-z0-9_-]{2,48}$/i.test(String(id||''));
 const PREF_LEVELS=['latent','liked','strongly_liked','disliked','restricted'];
+// Independent evidence gate: model-inferred roles remain subject to the core role checks.
+// Outcomes: confirmed, uncertain, not_established. Uncertain is never persisted.
+export function classifyBondEvidence(evidence){
+ const t=String(evidence||'').trim();
+ if(!t)return {status:'not_established',reason:'empty'};
+ const explicit=/각인(?:이|을|은|도|까지)?\s*(?:성립(?:했|하였|된|했다|하여|됐)|완료(?:됐|되었|했)|새겨졌|맺어졌|이루어졌)|(?:각인|본딩)(?:했(?:다|어|으며|고)|되었(?:다|어)|됐(?:다|어))|(?:bond(?:ed|ing)?|mark(?:ed|ing)?)\s+(?:was\s+)?(?:established|completed|formed)/i;
+ const nape=/(?:목덜미|뒷목|목\s*뒤(?:쪽)?|목\s*뒷부분|목덜미의\s*피부|nape|back\s+of\s+(?:the|his|her|their)\s+neck)/i;
+ const biting=/(?:물(?:었|었다|어뜯|고\s*놓)|깨물(?:었|었다)|베어\s*물(?:었|었다)|이빨(?:을|이)?\s*(?:박|꽂|파묻)|송곳니(?:를|가|는|를\s*깊이)?\s*(?:박|꽂|파묻|파고들)|송곳니가.{0,35}?(?:박|꽂|파묻|파고들)|(?:bit|bitten|sank\s+(?:his|her|their)?\s*(?:teeth|fangs)|buried\s+(?:his|her|their)?\s*fangs))/i;
+ const hypothetical=/(?:물(?:려고|을\s*뻔|수\s*있|고\s*싶|어야)|깨물(?:려고|고\s*싶)|각인(?:하려|하고\s*싶|할\s*생각|할\s*뻔|할\s*수|하지\s*않)|(?:would|could|might|wanted|tried|about\s+to)\s+(?:bite|bond|mark)|(?:if|만약).{0,25}(?:물|각인|bite|bond))/i;
+ const negated=/(?:물지\s*않|물지\s*못|물지는\s*않|물린\s*것은\s*아니|각인(?:되지\s*않|이\s*되지\s*않|은\s*성립하지\s*않|하지\s*않|은\s*아니)|(?:did\s+not|didn't|never|wasn't)\s+(?:bite|bitten|bond|mark))/i;
+ const memory=/(?:꿈속|꿈에서|상상(?:속|했|하며)|회상(?:했|하며|속)|과거를\s*떠올|예전에\s*각인|오래전\s*각인|(?:in\s+a\s+dream|imagined|flashback|remembered\s+(?:when|that)))/i;
+ const completed=explicit.test(t)||(nape.test(t)&&biting.test(t));
+ if(negated.test(t))return {status:'not_established',reason:'negated'};
+ if(hypothetical.test(t))return {status:'not_established',reason:'intent_or_hypothetical'};
+ if(memory.test(t))return {status:'uncertain',reason:'recollection_or_dream'};
+ if(completed)return {status:'confirmed',reason:explicit.test(t)?'explicit_completion':'completed_nape_bite'};
+ if(/(?:각인|본딩|물|깨물|송곳니|이빨\s*자국|bite|bond|mark|fangs)/i.test(t))return {status:'uncertain',reason:'insufficient_completion_context'};
+ return {status:'not_established',reason:'no_bond_evidence'};
+}
 export const ANALYZER_SYSTEM=`You extract confirmed events for a fictional ABO roleplay tracker. You are a conservative factual parser, not a narrator.
 Output only one valid JSON object: {"events": [ ... ]}. Never invent missing facts or add hypothetical events.
 Event shapes:
@@ -9,13 +29,14 @@ Event shapes:
 - {"kind":"heat_start"|"rut_start"|"ovulation","person":"char"|"user","evidence":"..."} only for explicitly confirmed start/ovulation.
 - {"kind":"medication","person":"char"|"user","drug":"${DRUGS.join('|')}","use_mode":"normal"|"misuse"|"unlicensed","evidence":"..."} only if taken/administered, not simply discussed.
 - {"kind":"exposure","gestator":"char"|"user","donor":"char"|"user","penetration":true,"deposition":true,"depositions":integer,"evidence":"..."} ONLY if explicit confirmed penetration into a reproductive route AND confirmed direct internal ejaculate deposition. No guessing from ambiguous intimacy or vague implications. Count only explicitly confirmed depositions, default 1 if a single one confirmed.
-- {"kind":"bond","person":"char"|"user","partner":"char"|"user","evidence":"..."} only when the permanent mark/bond explicitly completes.
+- {"kind":"bond","actor":"char"|"user","target":"char"|"user","biteLocation":"pheromone_nape","biteConfirmed":true,"evidence":"..."} ONLY when the current narration establishes an Alpha ACTUALLY biting an Omega on the nape/back of neck, OR explicitly reports the completed creation of their bond. The words "pheromone gland" are NOT required. Accept natural Korean descriptions (목덜미를 물었다, 뒷목에 송곳니를 박았다, 각인이 성립했다) and equivalent English descriptions. Determine actor/target using context and known secondary genders; never reverse roles. Do not treat mere desire, attempted bites, kisses, scents, hypotheticals, dreams, flashbacks or recollections of existing bonds as NEW events. Emit only certain completed current events, never an uncertain event.
+- {"kind":"bond_loss","person":"char"|"user","partner":"char"|"user","cause":"surgery"|"drug_adverse"|"death","evidence":"..."} ONLY for completed surgical removal, documented medication adverse loss, or death; never infer from ordinary separation.
 - {"kind":"pregnancy_reveal","person":"char"|"user","knower":"char"|"user","level":"suspected"|"confirmed","evidence":"..."}. Person is gestator; knower is one of the people.
 - {"kind":"delivery"|"pregnancy_end","person":"char"|"user","evidence":"..."} for a story-confirmed event.
 - {"kind":"preference","person":"char"|"user","preference":"concise snake_case tag","level":"${PREF_LEVELS.join('|')}","direct":boolean,"sceneId":"optional unique scene label","evidence":"..."}. Direct only for explicit statement; observations must recur across 2 different scenes before confirmation. Do not infer user preference from narrator prose.
 - {"kind":"scene","person":"char"|"user","posture":"...","contact":"...","vocal":"...","speech":"...","play":[],"completed":boolean,"evidence":"..."}. Include only persistent scene continuity worth tracking, not arbitrary momentary words.
 Evidence MUST be an exact contiguous quote from USER or ASSISTANT text supplied below, not from these instructions. Minimum 4 visible characters. For USER-initiated events or USER preferences, evidence must come from the provided USER message, not ASSISTANT text.
-Do not attribute actions to USER from assistant narration. Ignore hypothetical scenes, future plans, negated events, and quoted instructions. No event if ambiguous. Events ordered chronologically. Do not emit facts about people outside CHAR and USER. Maximum 12 events.`;
+Do not attribute actions to USER from assistant narration. Ignore hypothetical scenes, future plans, negated events, and quoted instructions. No event if ambiguous. Events ordered chronologically. For bonds ONLY, registered NPC IDs provided in current state may be used; never invent an NPC ID or confuse aliases. All other event kinds remain limited to CHAR/USER. Maximum 12 events.`;
 export function parseModelOutput(raw,userText='',assistantText=''){
  let text=String(raw||'').trim();
  if(text.startsWith('```'))text=text.replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'');
@@ -35,9 +56,9 @@ export function parseModelOutput(raw,userText='',assistantText=''){
   // USER preferences/actions cannot be fabricated by assistant narration.
   if(e.kind==='preference'&&e.person==='user'&&!fromUser)continue;
   if(e.kind==='scene'&&e.person==='user'&&!fromUser)continue;
-  if(['medication','heat_start','rut_start','ovulation','bond','delivery','pregnancy_end'].includes(e.kind)&&e.person==='user'&&!fromUser)continue;
+  if(['medication','heat_start','rut_start','ovulation','bond','bond_loss','delivery','pregnancy_end'].includes(e.kind)&&e.person==='user'&&!fromUser)continue;
   if(['time_advance'].includes(e.kind)&&(!Number.isFinite(e.hours)||e.hours<0||e.hours>8760))continue;
-  if(['heat_start','rut_start','ovulation','medication','bond','pregnancy_reveal','delivery','pregnancy_end','preference','scene'].includes(e.kind)&&!['char','user'].includes(e.person))continue;
+  if(['heat_start','rut_start','ovulation','medication','pregnancy_reveal','delivery','pregnancy_end','preference','scene'].includes(e.kind)&&!['char','user'].includes(e.person))continue;
   if(e.kind==='medication'&&(!DRUGS.includes(e.drug)||!['normal','misuse','unlicensed'].includes(e.use_mode)))continue;
   if(e.kind==='exposure'){
    if(!['char','user'].includes(e.gestator)||!['char','user'].includes(e.donor)||e.gestator===e.donor)continue;
@@ -46,7 +67,13 @@ export function parseModelOutput(raw,userText='',assistantText=''){
    if(e.evidence.length<12)continue;
   }
   if(e.kind==='preference'&&(!PREF_LEVELS.includes(e.level)||typeof e.preference!=='string'||!/^[-_a-z0-9]{2,80}$/i.test(e.preference)))continue;
-  if(e.kind==='bond'&&(!['char','user'].includes(e.partner)||e.partner===e.person))continue;
+  if(e.kind==='bond'&&(!validPersonId(e.actor)||!validPersonId(e.target)||e.actor===e.target||e.biteLocation!=='pheromone_nape'||e.biteConfirmed!==true))continue;
+  if(e.kind==='bond'){
+   const verdict=classifyBondEvidence(e.evidence);
+   if(verdict.status!=='confirmed')continue;
+   e.person=e.actor;e.partner=e.target;
+  }
+  if(e.kind==='bond_loss'&&(!validPersonId(e.person)||!validPersonId(e.partner)||e.partner===e.person||!['surgery','drug_adverse','death'].includes(e.cause)))continue;
   if(e.kind==='pregnancy_reveal'&&(!['char','user'].includes(e.knower)||!['suspected','confirmed'].includes(e.level)))continue;
   if(e.kind==='scene'){
    for(const k of ['posture','contact','vocal','speech'])if(typeof e[k]!=='string')delete e[k];

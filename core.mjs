@@ -1,6 +1,6 @@
 /* ABO Pixel Tracker · standalone pure state engine. No third-party extension code. */
 import {anatomyDefault} from './profile.mjs';
-export const VERSION = 1;
+export const VERSION = 2;
 export const PHASE_RATES = Object.freeze({ quiet: .10, prodrome: .40, active: .75, recovery: .35 });
 export const INSTINCTS = Object.freeze({
   approach:['alpha','beta','omega'], contact_request:['alpha','beta','omega'],
@@ -24,7 +24,7 @@ export const DRUGS = Object.freeze({
   oral_contraceptive:{adverse:.08,duration:[24,24]}
 });
 export const DEFAULT_CONFIG = Object.freeze({
-  enabled:true,autoAnalyze:true,injectState:true,hideTruth:false,pregnancyEnabled:true,
+  enabled:true,autoAnalyze:true,injectState:true,hideTruth:false,pregnancyEnabled:true,asymmetricBond:false,bondBaseSeparationStress:10,bondCycleSeparationStress:20,
   analysisConnection:'',customApiUrl:'',customModel:'',setupMaxTokens:5000,
   rate:{rise:.03,fertile:.14,peak:.30,fall:.06},
   sideEffectScale:1, windowCap:.85,
@@ -72,13 +72,13 @@ export function person(id,name,seed,canon={}){
   id,identityId:String(canon.id||''),name:String(name||id),sex,secondary:abo,source:{sex:sex!=='unknown'?'card':'unknown',secondary:secondary!=='unknown'?'card':'initial_roll'},
   locks:{},anatomy:canon.anatomy||anatomyDefault(sex,abo),anatomyDetail:canon.anatomyDetail||'',inseminationOrgan:canon.inseminationOrgan||'',
   presentation:{pheromoneScent:canon.pheromoneScent||'',contactStyle:canon.contactStyle||'',vocalStyle:canon.vocalStyle||'',speechStyle:canon.speechStyle||''},
-  cycle:{enabled:abo!=='beta',intervalHours:interval*24,prodromeHours:prodrome,activeHours:active,recoveryHours:recovery,anchorHour:interval*24, phase:'quiet',ovulationHour:null},
+  cycle:{enabled:abo!=='beta',mode:abo==='beta'?'absent':'enabled',intervalHours:interval*24,prodromeHours:prodrome,activeHours:active,recoveryHours:recovery,anchorHour:interval*24, phase:'quiet',ovulationHour:null},
   menstruation:{enabled:omegaMale||sex==='female',days:pickInt(seed,`${id}:menses`,3,7)},
   fertile:{gestate:(abo==='omega'||sex==='female'&&['alpha','beta'].includes(abo)),impregnate:abo==='alpha'||(sex==='male'&&abo==='beta')},
   body:{condition:70,fatigue:20,desire:25,sensitivity:35,emission:40,stress:20,resistance:50,instinct:50},
   pheromone:{emission:50,sensitivity:50,control:50,pressure:50},
   medication:[],tolerance:{},adverse:[], preferences:canon.preferences?structuredClone(canon.preferences):{confirmed:[],latent:[],attitude:'curious'},
-  awareness:{pregnancy:'unaware'},bondWith:null,
+  awareness:{pregnancy:'unaware'},bondWith:null,bondPartners:[],permanentMark:null,
   pregnancy:{status:'none',conceivedAt:null,implantAt:null,dueAt:null,deliveryAt:null},
   scene:{posture:'',contact:'',vocal:'',speech:'',play:[]},recentScenes:[]
  };
@@ -170,7 +170,21 @@ export function eventChance(state,event){
  const p=CLAMP(base*pairMultiplier(d,g,state.clockHours)*personF*contraceptive,0,1);
  return {p:encounterChance(p,event.depositions||1),reason:'qualified',ov};
 }
+/** Only enabled heat/rut profiles have an ABO cycle. Stored numeric timings may
+ * remain in older chats for compatibility but are not an active cycle. */
+export function cycleDisplay(p){
+ const enabled=p?.cycle?.enabled===true;
+ return {
+  enabled,
+  phase:enabled?(p.cycle.phase||'quiet'):'none',
+  intervalDays:enabled?p.cycle.intervalHours/24:null,
+  prodromeHours:enabled?p.cycle.prodromeHours:null,
+  activeDays:enabled?p.cycle.activeHours/24:null,
+  recoveryHours:enabled?p.cycle.recoveryHours:null
+ };
+}
 export function phaseForPerson(p,time){
+ if(!p.cycle?.enabled)return 'quiet';
  if(['conception_pending','pregnant_unaware','pregnant_suspected','pregnant_confirmed','due'].includes(p.pregnancy.status))return 'suspended';
  if(p.pregnancy.status==='postpartum'&&time<p.cycle.anchorHour)return 'recovery';
  if(p.cycle.inducedUntil>time)return 'active';
@@ -201,8 +215,47 @@ export function instinctChance(p,phase,{nearBond=false,separatedFromBond=false}=
  const bonded=p.bondWith && (separatedFromBond?.12:nearBond?.08:0);
  return CLAMP(base+sensitivity+resistance+(bonded||0),0,1);
 }
+export const BOND_EFFECTS=Object.freeze({partnerScentSensitivity:20,otherScentSensitivity:-30,otherScentDiscomfort:15,heatSeparationStress:20});
+export function cycleMode(p){
+ const mode=p?.cycle?.mode;
+ if(['enabled','disabled','absent','unset'].includes(mode))return mode;
+ return p?.cycle?.enabled===true?'enabled':'disabled'; // backward compatibility
+}
+export function bondSeparationStress(state,id,{separated=false}={}){
+ const p=state.people[id],effects=bondEffects(state,id);
+ if(!p||!effects?.active||!separated)return {base:0,cycle:0,total:0};
+ const partnerActive=effects.partners.some(pid=>{
+   const q=state.people[pid];return q&&cycleMode(q)==='enabled'&&q.cycle.phase==='active';
+ });
+ const selfActive=cycleMode(p)==='enabled'&&p.cycle.phase==='active';
+ const base=Number(state.config.bondBaseSeparationStress??10);
+ const cycle=(selfActive||partnerActive)?Number(state.config.bondCycleSeparationStress??20):0;
+ return {base,cycle,total:base+cycle}; // heat/rut bonus never stacks twice
+}
+export function effectivePheromoneResponse(state,id){
+ const p=state.people[id];if(!p)return null;
+ const effect=bondEffects(state,id);
+ return {partnerSensitivity:CLAMP(p.pheromone.sensitivity+(effect?.partnerScentSensitivity||0),0,100),
+ otherSensitivity:CLAMP(p.pheromone.sensitivity+(effect?.otherScentSensitivity||0),0,100),
+ otherDiscomfort:effect?.otherScentDiscomfort||0};
+}
+
+export function bondEffects(state,id){
+ const p=state.people[id];if(!p)return null;
+ const partners=(state.bonds||[]).filter(b=>b.includes(id)).map(b=>b.find(v=>v!==id));
+ if(!partners.length)return null;
+ const applies=!state.config.asymmetricBond||p.secondary==='omega';
+ return {partners,active:applies,...Object.fromEntries(Object.entries(BOND_EFFECTS).map(([k,v])=>[k,applies?v:0]))};
+}
+function refreshBondLinks(state){
+ for(const person of Object.values(state.people)){
+  const partners=state.bonds.filter(pair=>pair.includes(person.id)).map(pair=>pair.find(id=>id!==person.id));
+  person.bondPartners=partners;person.bondWith=partners[0]||null;
+  const former=person.permanentMark;person.permanentMark=person.secondary==='omega'&&partners.length?{alpha:partners[0],location:'nape',at:former?.alpha===partners[0]?former.at:state.clockHours}:null;
+ }
+}
 export function allowedInstincts(p){return Object.entries(INSTINCTS).filter(([key,list])=>list.includes(p.secondary)&&(key!=='bond_partner_seek'||!!p.bondWith)).map(([key])=>key);}
-export function pressureScore(source,target){const hierarchy=source.secondary==='alpha'&&target.secondary==='omega'?15:0;return CLAMP(source.pheromone.pressure-target.body.resistance+hierarchy,0,100);}
+export function pressureScore(source,target,state=null){const bond=state?.bonds?.some(pair=>pair.includes(source.id)&&pair.includes(target.id));const response=state?effectivePheromoneResponse(state,target.id):null;const hierarchy=source.secondary==='alpha'&&target.secondary==='omega'?15:0;return CLAMP(source.pheromone.pressure-target.body.resistance+hierarchy+(bond&&response?Math.round((response.partnerSensitivity-target.pheromone.sensitivity)/5):0),0,100);}
 const normEvent=(e)=>({...e,id:String(e.id||'unknown').slice(0,100)});
 function updateCycles(state){
  for(const p of Object.values(state.people)){
@@ -271,11 +324,36 @@ export function applyEvent(state,input){
   break;
  }
  case 'ovulation':if(p?.fertile.gestate)p.cycle.ovulationHour=state.clockHours;break;
- case 'bond':{
-  const a=state.people[e.person],b=state.people[e.partner];
-  if(a&&b&&a!==b){a.bondWith=b.id;b.bondWith=a.id;
-   if(!state.bonds.some(x=>x.includes(a.id)&&x.includes(b.id)))state.bonds.push([a.id,b.id]);}
+ case 'npc_register':{
+  const key=String(e.person||'');
+  if(!/^npc:[a-z0-9_-]{2,48}$/i.test(key)||state.people[key])break;
+  if(!['alpha','omega','beta'].includes(e.secondary)||typeof e.name!=='string'||!e.name.trim())break;
+  state.people[key]=person(key,e.name.slice(0,80),`${state.seed}:${key}`,{secondary:e.secondary,sex:'unknown',id:key});
   break;
+ }
+ case 'bond':{
+  // Strict role direction and bite location; reject ambiguous or swapped participants.
+  const a=state.people[e.actor||e.person],b=state.people[e.target||e.partner];
+  // A permanent bite at an Omega's pheromone-sensitive nape establishes the bond.
+  // Consent is not a mechanical prerequisite; narrative agency remains governed by RP rules.
+  if(!a||!b||a===b)break;
+  const alpha=a.secondary==='alpha'?a:null;
+  const omega=b.secondary==='omega'?b:null;
+  if(e.biteLocation!=='pheromone_nape'||e.biteConfirmed!==true)break;
+  if(!alpha||!omega)break;
+  if(state.bonds.some(pair=>pair.includes(alpha.id)&&pair.includes(omega.id)))break;
+  // Omega always has one Alpha; OFF also limits Alpha to one Omega.
+  if(state.bonds.some(pair=>pair.includes(omega.id)))break;
+  if(!(e.allowMultipleAtCreation===true||state.config.asymmetricBond)&&state.bonds.some(pair=>pair.includes(alpha.id)))break;
+  state.bonds.push([alpha.id,omega.id]);refreshBondLinks(state);
+  break;
+ }
+ case 'bond_loss':{
+  // A surgery or documented drug side effect can sever a bond, never an ordinary time advance.
+  if(!['surgery','drug_adverse','death'].includes(e.cause))break;
+  const a=state.people[e.person],b=state.people[e.partner];if(!a||!b)break;
+  state.bonds=state.bonds.filter(pair=>!(pair.includes(a.id)&&pair.includes(b.id)));
+  refreshBondLinks(state);break;
  }
  case 'medication':{
   if(!p||!DRUGS[e.drug])break;
@@ -351,7 +429,8 @@ export function replay(seed,canon,config,rows,overrides={}){
    else if(k==='anatomyDetail'||k==='inseminationOrgan')p[k]=String(v).slice(0,1200);
    else if(['pheromoneScent','contactStyle','vocalStyle','speechStyle'].includes(k))p.presentation[k]=String(v).slice(0,220);
    else if(k==='name')p.name=String(v).slice(0,100);
-   else if(k==='cycleEnabled')p.cycle.enabled=!!v;
+   else if(k==='cycleMode'&&['enabled','disabled','absent','unset'].includes(v)){p.cycle.mode=v;p.cycle.enabled=v==='enabled';}
+   else if(k==='cycleEnabled'){p.cycle.enabled=!!v;p.cycle.mode=v?'enabled':'disabled';}
    else if(k==='gestate')p.fertile.gestate=!!v;
    else if(k==='impregnate')p.fertile.impregnate=!!v;
    else if(k==='menstruationEnabled')p.menstruation.enabled=!!v;
@@ -359,7 +438,7 @@ export function replay(seed,canon,config,rows,overrides={}){
   if(!Object.hasOwn(changes,'gestate'))p.fertile.gestate=p.secondary==='omega'||p.sex==='female'&&['alpha','beta'].includes(p.secondary);
   if(!Object.hasOwn(changes,'impregnate'))p.fertile.impregnate=p.secondary==='alpha'||p.sex==='male'&&p.secondary==='beta';
   if(!Object.hasOwn(changes,'menstruationEnabled'))p.menstruation.enabled=p.secondary==='omega'||p.sex==='female';
-  if(!Object.hasOwn(changes,'cycleEnabled'))p.cycle.enabled=p.secondary!=='beta';
+  if(!Object.hasOwn(changes,'cycleEnabled')&&!Object.hasOwn(changes,'cycleMode')){p.cycle.enabled=p.secondary!=='beta';p.cycle.mode=p.cycle.enabled?'enabled':'absent';}
   if(!Object.hasOwn(changes,'anatomy'))p.anatomy=anatomyDefault(p.sex,p.secondary);
  }
  for(const row of rows){for(const evt of row.events||[])applyEvent(s,evt);}
@@ -372,7 +451,9 @@ export function formatPrompt(s,hideTruth=false){
  const out=['[ABO TRACKER — CONTINUITY / NOT CHARACTER KNOWLEDGE]',`Story clock: D${Math.floor(s.clockHours/24)} ${Math.floor(s.clockHours%24)}h. Treat time as story time, not real time.`];
  if(s.config.pregnancyEnabled===false)out.push('PREGNANCY TRACKING OFF for this chat: do not introduce tracker-generated pregnancy, conception outcomes, pregnancy symptoms or due dates.');
  for(const [id,p] of Object.entries(s.people)){
-  out.push(`${id.toUpperCase()} ${p.name}: sex=${p.sex}; ABO=${p.secondary}; anatomy=${p.anatomy||'not specified'}; cycle=${p.cycle.phase}; menses=${p.menstruation.phase}; bond=${p.bondWith||'none'}; symptoms: condition=${p.body.condition}, sensitivity=${p.body.sensitivity}, stress=${p.body.stress}; recent meds=${p.medication.filter(m=>m.until>=s.clockHours).map(m=>m.drug).join(',')||'none'}.`);
+  const cycle=cycleDisplay(p);
+  const bondData=bondEffects(s,id);if(bondData)out.push(`${id.toUpperCase()} bond effects: partners=${bondData.partners.join(',')}; active=${bondData.active}; partner pheromone sensitivity ${bondData.partnerScentSensitivity>0?'+':''}${bondData.partnerScentSensitivity}; others sensitivity ${bondData.otherScentSensitivity}; others discomfort +${bondData.otherScentDiscomfort}; cycle separation stress +${bondData.heatSeparationStress} (max once if heat or rut is active), baseline separated stress +${s.config.bondBaseSeparationStress??10}. Asymmetric bond mode=${s.config.asymmetricBond?'ON (Omega effects only)':'OFF (both partners affected)'}.`);
+  out.push(`${id.toUpperCase()} ${p.name}: sex=${p.sex}; ABO=${p.secondary}; anatomy=${p.anatomy||'not specified'}; cycle=${cycleMode(p)} (${cycle.enabled?cycle.phase:'no active cycle'}); menses=${p.menstruation.phase}; bond=${(p.bondPartners||[]).join(',')||'none'}; symptoms: condition=${p.body.condition}, sensitivity=${p.body.sensitivity}, stress=${p.body.stress}; recent meds=${p.medication.filter(m=>m.until>=s.clockHours).map(m=>m.drug).join(',')||'none'}.`);
   if(p.anatomyDetail||p.inseminationOrgan)out.push(`${id.toUpperCase()} anatomical notes=${(p.anatomyDetail||'').slice(0,240)}; insemination anatomy=${(p.inseminationOrgan||'').slice(0,240)}.`);
   const prs=p.presentation||{};if(Object.values(prs).some(Boolean))out.push(`${id.toUpperCase()} interaction profile: scent=${prs.pheromoneScent||'unknown'}; contact=${prs.contactStyle||'unknown'}; voice=${prs.vocalStyle||'unknown'}; speech=${prs.speechStyle||'unknown'}.`);
   const pref=p.preferences||{};

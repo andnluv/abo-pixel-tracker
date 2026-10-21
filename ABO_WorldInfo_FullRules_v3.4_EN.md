@@ -153,9 +153,10 @@ A scent trace usually lasts hours. Temporary pheromone marking or scent shower l
 - Keys: permanent mark, bond, bonding, 영구 표식, 결합, 본딩, 각인
 
 ```text
-[PERMANENT MARK = PERMANENT BOND]
-A valid permanent mark establishes exactly one bond event; the two are the same event, not separate stages. All permanent bonds have the same underlying strength, persist until death, and may form regardless of romance status. Bound individuals experience heightened sensitivity to the partner's pheromone (suggest +20), reduced response and greater discomfort toward others' pheromones (suggest -15 sensitivity / +15 discomfort), physiological emotional synchrony, stronger psychological/instinctive influence from the partner, and elevated separation stress during heat (suggest +15). Bond proximity can raise partner-approach propensity (suggest +8 percentage points), and separation during heat can raise partner-search propensity (suggest +12 points). Perceived intensity varies by physiology, not by bond strength tier. Bond partner seeking is Alpha/Omega only.
-Store both participants, time, and each participant's awareness independently. Do not automatically create multiple bonds from one event.
+[PERMANENT MARK = PERMANENT BOND — CONFIGURABLE]
+An Alpha biting an Omega on the pheromone-sensitive nape establishes permanent marking and a bond, even without mutual explicit consent. A visible permanent bite mark appears on the Omega only; the Alpha has no permanent physical mark. Do not automatically infer that a bite happened merely from proximity, scent exchange, or temporary marking. Recognize the completed act semantically (e.g., biting the nape/back of neck, sinking fangs into the nape, or an explicit statement that the bond was completed) without requiring the literal words "pheromone gland". Do not form new bonds from attempted acts, speculative intentions, dreams, flashbacks, or reminders of already existing bonds; ambiguous evidence requires review. The bond normally lasts until death but can be lost through surgery or a documented drug adverse effect; neither automatically occurs without an event.
+Bond effects are partner pheromone sensitivity +20, third-party pheromone sensitivity -30, third-party pheromone discomfort +15, and separation stress during heat +20 (relative modifiers, not unbounded absolute values).
+When asymmetricBond=false (default OFF), one Alpha and one Omega form a mutually affecting exclusive bond: both experience pheromone responses, physiological/emotional synchrony, and separation stress. When asymmetricBond=true (ON), an Alpha may bond to multiple Omegas, each Omega may bond to only one Alpha; pheromone response modifiers and separation stress apply to the Omega(s) only, not the Alpha. The Alpha retains the factual bond relation without these numerical modifiers. A single bite creates at most one bond event; track awareness separately. Do not invent bonds, removals, or partner actions. Respect USER agency in narration.
 ```
 
 ## BOND-03 · Knotting & Nesting Traits
@@ -377,3 +378,8 @@ Maintain separate interest tags for roleplay, sensory activities, exhibitionism/
 [SCENE CONTINUITY & VARIETY]
 Maintain consistent relative positions, contact, movement, speech, vocalization, and active activities. Keep only concise tags of posture/contact/speech/vocal patterns for the three most recent intimate scenes. Gently vary repetitive choices while preserving personal mannerisms, ongoing actions, and physical feasibility; never force novelty at the cost of continuity. On conclusion, retain only durable preference changes, relationship developments, persistent bodily effects, and important events. Keep current-scene fields distinct from long-term preference records.
 ```
+
+
+### v0.3.26 Bond / Rut Supplement
+
+Baseline separation stress +10 when separated; +20 additional during a confirmed active heat or rut of self or bonded partner (no double stacking). `enabled`, `disabled`, `absent`, `unset` are distinct rut modes; disabled/absent/unset contribute no rut phase bonus. Previously formed multiple bonds survive toggling asymmetricBond ON→OFF; new bonds under OFF must be exclusive. Each NPC has a stable `npc:<id>`. Removal events require surgery, documented adverse drug event, or confirmed death.

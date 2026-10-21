@@ -1,3 +1,10 @@
+## v0.3.22 — 비활성 히트·러트 주기 표시 수정
+
+- **베타 남성의 주기 표시 수정:** `cycle.enabled=false`인 인물은 저장된 내부 간격·전조·활성·회복 숫자가 남아 있어도 주기 화면에 표시하지 않습니다. 화면에는 `주기 없음 · 약물`, `히트·러트 주기: 없음`이 나타납니다.
+- **상태 및 RP 일관성:** 상태 카드의 주기 태그는 `주기 없음`으로, RP 연속성 프롬프트는 `cycle=none (disabled)`로 표시합니다. 비활성 주기에 약물 사건으로 남은 강제 활성 기록이 있어도 히트·러트 활성 단계로 계산하지 않습니다.
+- **기존 설정 보존:** 사용자 수동 지정으로 `러트/히트: 사용`을 켠 예외는 기존처럼 주기를 표시합니다. 베타 여성의 별도 월경 가능 여부, 알파·오메가의 기본 주기, 약물·부작용·내성 기록 및 NPC 검색 코드는 유지했습니다.
+- 기존 채팅 저장 데이터, 연결 프로필 및 토큰 값은 변경하지 않습니다. 서버 내 모바일 통합 테스트는 별도로 필요합니다.
+
 ## v0.3.21 — 월드 인포 NPC 2단계 검색
 
 - **1차 · NPC 찾기**: `<인물>`, `[NPC]`, 개별 인물 프로필, `Name:`/`이름:` 필드, 제목과 성격·외모가 함께 있는 항목 및 팀/그룹 내 여러 인물의 목록을 찾아 후보를 제안합니다. 인물 설정집 원본은 변경하지 않습니다.
@@ -10,7 +17,7 @@
 ### v0.3.17: 모바일 패널 레이아웃 수정
 모바일에서 패널을 실제 표시 영역에 맞춰 전체 화면으로 열고 상단 헤더/닫기, 가로 탭, 하단 상태줄은 항상 보이게 합니다. 상태·설정 내용만 독립적으로 스크롤하며, 성별/ABO 등 입력은 한 열로 표시합니다. PC 레이아웃과 분석 데이터/계산 규칙은 변경하지 않습니다.
 
-# 그날의 사정 v0.3.21 Beta — 설치 및 업데이트
+# 그날의 사정 v0.3.27 Beta — 설치 및 업데이트
 
 SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 않습니다.
 
@@ -40,7 +47,7 @@ SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 
 3. **ZIP 파일 자체를 하나만 업로드하지 마세요.** 반드시 압축 해제한 내용물을 업로드해야 합니다.
 4. 기존 파일을 GitHub 웹 UI에서 동일 이름으로 교체하기 어렵다면 GitHub Desktop의 파일 복사·커밋·Push 방식을 이용하거나, 저장소를 새롭게 재구성하세요. 중복 폴더를 생성하지 마세요.
 5. SillyTavern 확장 관리 → 업데이트를 실행하고 브라우저를 새로고침합니다. 변경된 CSS가 그대로라면 강력 새로고침(Ctrl+Shift+R)을 해 보세요.
-6. 창 상단에 **v0.3.21**이 표시되는지 확인하세요.
+6. 창 상단에 **v0.3.27**이 표시되는지 확인하세요.
 
 > **월드 인포 동기화 필요:** 기존 v3.4를 가져온 경우 해당 책의 `PREG-02` 항목을 이번 파일 내용으로 교체해 주세요. 이미 가져온 월드 인포는 확장 업데이트만으로 바뀌지 않습니다. 같은 책을 중복으로 불러오지는 마세요. 신규 설치라면 `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json`을 가져오세요.
 
@@ -71,7 +78,7 @@ SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 
 
 > 수치와 약물 종류는 **ABO 픽션 세계관용 시뮬레이션 가정**이며 현실 임신 확률·피임약·약물 복용의 의학적 근거가 아닙니다. 《Kamasutra》나 BDSM 관련 자료의 구체적인 문장을 새 코드에 인용하거나 외부 원작 코드를 복사하지 않았습니다. 기존 v3.4 세계관 참고 규칙을 존중하되 플레이와 설정이 충돌하면 수동 고정·원작 카드가 우선합니다.
 
-**테스트:** `npm run check && npm test` (자체 회귀 테스트 73개). 실제 SillyTavern/Vultr 환경에서의 장기 RP 통합 테스트는 별도로 필요합니다.
+**검사:** 배포본에는 자동 테스트 파일이 포함되지 않습니다. `npm run check`로 구문 검사가 가능합니다. 실제 SillyTavern/Vultr 환경 통합 테스트는 별도로 필요합니다.
 
 ## v0.3.10 — 임신 탭 표기 개선
 
@@ -249,3 +256,31 @@ API 키는 채팅 메타데이터에 기록하지 않습니다. 수동 제안과
 - 하나로 병합된 후보에서도 원본 월드 인포 출처를 표시합니다. 검색 결과에서만 병합하며 이미 저장된 NPC 추적 ID, 분석 기록, 채팅 메타데이터는 자동 변경·삭제하지 않습니다.
 - 동명이인이라도 설명이 서로 다르면 임의로 합치지 않습니다. 복제된 항목의 AI 보조 탐색 중복 호출도 방지합니다.
 - 별도의 연령 필터를 추가하지 않았습니다.
+
+## v0.3.23 · 기존 채팅 시간 수동 동기화 (Beta)
+
+- **상태 → 서사 시간 · 사건 → 기존 채팅 시간 동기화** 버튼을 누르면 현재 채팅의 메시지에서 명시적인 경과 시간과 CHAR/USER의 히트·러트 시작을 검색합니다.
+- 검색 결과를 **미리보기**로 확인하고 항목별 체크를 변경한 뒤 **선택 항목 적용**을 누르세요. 자동 동기화는 실행되지 않습니다.
+- 턴 수, 메시지 생성 시각, 날짜만으로 서사상 경과 시간을 추측하지 않습니다.
+- 같은 채팅에서 다시 적용하면 이전 시간 동기화 사건만 교체합니다. 기존 수동·자동 사건은 유지됩니다.
+- 기존 시간 진행 사건이 있으면 중복 계산 위험을 경고합니다. 한 메시지에 여러 시간 단서가 있는 경우도 검토 경고를 표시합니다.
+- 이번 Beta는 명시적 숫자형 경과 표현과 명시적으로 CHAR/USER가 주어인 히트·러트 시작만 복원합니다. 은유적 날짜, 상대적 달력 날짜, 이름으로만 지칭된 NPC, 모호한 서사는 자동 판정하지 않습니다.
+- 시간 동기화는 현재의 채팅 메타데이터에만 저장되며, 결과를 적용하기 전에 기존 메타데이터 백업을 권장합니다.
+
+
+## v0.3.24 Natural-language time synchronization
+Manual history synchronization now detects Korean and English time expressions. Exact durations can be selected in the preview; vague time-of-day, approximate, and calendar-relative expressions are flagged for review without automatically adding an invented number of hours.
+
+
+## v0.3.25 — Bond rules / 각인 규칙
+
+- Config checkbox: asymmetricBond (OFF by default). OFF: one-to-one bonds with bilateral effects; ON: Alpha may have multiple Omegas, each Omega only one Alpha, with numerical pheromone/separation effects on Omegas only.
+- Alpha biting the pheromone-sensitive nape establishes bond; permanent visible mark only on Omega. No mutual-consent requirement for event validation.
+- Effects +20 / -30 / +15 / +20. Bond normally persists until death; `bond_loss` event with `cause: surgery` or `drug_adverse` can remove it.
+- Existing multiple bonds created while ON are preserved when switching OFF; new bonds follow OFF exclusivity. NPCs require stable registered IDs and not all automatic discovery paths are covered.
+
+
+v0.3.26~v0.3.27 각인·러트 및 문맥 판정 규칙은 BOND_DESIGN_KO.md 참조.
+
+## v0.3.27 — Semantic bond evidence gate
+Completed nape bites and explicit completed-bond narration can be recognized without a literal pheromone-gland keyword. Evidence is classified confirmed / uncertain / not_established; only confirmed new acts are persisted. Flashbacks, hypothetical bites, and negation are excluded. Core still validates Alpha -> Omega, nape and event flags.
