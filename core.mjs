@@ -115,6 +115,49 @@ export function phaseAt(c,t){
  if(c.intervalHours-remaining<=c.prodromeHours)return'prodrome';
  return 'quiet';
 }
+/** Read-only forecast: story hours only; does not modify a profile or infer elapsed time. */
+export function cycleForecast(p, time, seed=''){
+ const mode=cycleMode(p), c=p?.cycle||{}, m=p?.menstruation||{};
+ const pregnancy=p?.pregnancy?.status||'none';
+ const paused=['conception_pending','pregnant_unaware','pregnant_suspected','pregnant_confirmed','due','postpartum'].includes(pregnancy);
+ const result={mode,phase:paused?'paused':phaseForPerson(p,time),currentEndHours:null,nextProdromeHours:null,nextActiveHours:null,nextRecoveryHours:null,nextQuietHours:null,nextMenstruationHours:null,menstruationEndHours:null,menstruationStatus:m.enabled?'unknown':'absent',paused};
+ if(mode==='enabled'&&!paused&&Number.isFinite(c.intervalHours)&&c.intervalHours>0){
+  const interval=c.intervalHours, active=Math.max(0,Number(c.activeHours)||0), recovery=Math.max(0,Number(c.recoveryHours)||0),prodrome=Math.max(0,Number(c.prodromeHours)||0);
+  const n=Math.ceil((time-c.anchorHour)/interval);
+  let next=c.anchorHour+n*interval;
+  if(next<time-1e-7)next+=interval;
+  const starts=[next-interval,next,next+interval];
+  const nextAt=(shift)=>{const arr=starts.filter(x=>x>=c.anchorHour-1e-7).map(x=>x+shift).filter(x=>x>=time-1e-7);return arr.length?Math.max(0,Math.min(...arr)-time):null;};
+  result.nextActiveHours=nextAt(0);
+  result.nextRecoveryHours=nextAt(active);
+  result.nextQuietHours=nextAt(active+recovery);
+  result.nextProdromeHours=nextAt(-prodrome);
+  const current=result.phase;
+  if(current==='prodrome')result.currentEndHours=result.nextActiveHours;
+  else if(current==='active')result.currentEndHours=result.nextRecoveryHours;
+  else if(current==='recovery')result.currentEndHours=result.nextQuietHours;
+  else if(current==='quiet')result.currentEndHours=result.nextProdromeHours;
+  if(c.inducedUntil>time){result.phase='active';result.currentEndHours=Math.max(0,c.inducedUntil-time);}
+ }
+ if(!m.enabled){result.menstruationStatus='absent';return result;}
+ if(paused){result.menstruationStatus='paused';return result;}
+ const days=Math.max(1,Number(m.days)||1)*24;
+ let first=null,interval=null;
+ if(p.secondary==='beta'&&p.sex==='female'){
+  interval=Number(m.intervalHours)>0?Number(m.intervalHours):28*24;
+  first=Number.isFinite(m.anchorHour)?m.anchorHour:28*24; // independent of heat/rut
+ }else if(mode==='enabled'&&Number.isFinite(c.intervalHours)&&c.intervalHours>0){
+  interval=c.intervalHours;
+  const luteal=pickInt(seed,`${p.id}:luteal`,11,16)*24;
+  if(p.secondary==='omega') first=c.anchorHour+c.activeHours/2+luteal;
+  else if(p.sex==='female'&&p.secondary==='alpha')first=c.anchorHour+(c.ovulationSide==='post'?c.activeHours+12:-12)+luteal;
+ }
+ if(first===null||!Number.isFinite(interval)||interval<=0){result.menstruationStatus='unknown';return result;}
+ const k=Math.max(0,Math.floor((time-first)/interval)),start=first+k*interval;
+ if(time>=start&&time<start+days){result.menstruationStatus='active';result.menstruationEndHours=start+days-time;result.nextMenstruationHours=start+interval-time;}
+ else{result.menstruationStatus='waiting';result.nextMenstruationHours=(time<first?first:start+interval)-time;}
+ return result;
+}
 export function ovulationHour(p,time){
  if(Number.isFinite(p.cycle.ovulationHour))return p.cycle.ovulationHour;
  if(p.secondary==='omega' && p.cycle.enabled){

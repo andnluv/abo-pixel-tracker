@@ -1,12 +1,12 @@
 import {recoverHistoryTime,applyHistorySync,syncedHistoryEventCount} from './time-sync.mjs';
-import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,cycleDisplay,cycleMode,bondEffects,bondSeparationStress,effectivePheromoneResponse,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
+import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,cycleDisplay,cycleForecast,cycleMode,bondEffects,bondSeparationStress,effectivePheromoneResponse,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
 import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,completeInitialIdentityProposal,alignInitialPhysiologyProposal,missingInitialSecondaryRoles,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
 import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
 import {OPTION_CANDIDATES} from './profile.mjs';
-import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel} from './preference-labels.mjs';
+import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel,sceneDisplayLabel,sceneRecordSummary} from './preference-labels.mjs';
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 import {normalizeSetupOutputTokens,MIN_SETUP_OUTPUT_TOKENS,MAX_SETUP_OUTPUT_TOKENS} from './setup-options.mjs';
 import {buildProfileSetupInput} from './profile-setup-input.mjs';
@@ -422,13 +422,35 @@ async function applyProfileProposal(){
 }
 /** Do not present dormant interval timings as an active heat/rut cycle.
  * Non-ABO menstruation is a separate flag (e.g. female Beta). */
-function cycleOverview(p){
- const c=cycleDisplay(p);
- const fertility=`<p>월경: ${p.menstruation.enabled?'활성':'없음/미설정'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p>`;
- if(!c.enabled){
-  return `<p>히트·러트 주기: <b>없음</b></p>${fertility}${p.menstruation.enabled?'<p class="abop-muted">월경은 히트·러트와 별개로 관리됩니다.</p>':''}`;
- }
- return `<p>단계: <b>${html(cyclePhaseLabel(c.phase))}</b></p><p>간격: ${fmt(c.intervalDays)}일</p><p>전조: ${fmt(c.prodromeHours)}시간 · 활성: ${fmt(c.activeDays)}일</p><p>회복: ${fmt(c.recoveryHours)}시간</p>${fertility}<p class="abop-muted">본능 행동화: ${(instinctChance(p,c.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p>`;
+function remainingLabel(hours){
+ if(!Number.isFinite(hours))return '계산할 수 없음';
+ const minutes=Math.max(0,Math.ceil(hours*60));if(minutes===0)return '지금';
+ const d=Math.floor(minutes/1440),h=Math.floor((minutes%1440)/60),min=minutes%60;
+ return [d?`${d}일`:'',h?`${h}시간`:'',min?`${min}분`:''].filter(Boolean).join(' ')+' 남음';
+}
+function cycleOverview(p,clock,seed){
+ const f=cycleForecast(p,clock,seed);const m=f.mode;
+ const category=p.secondary==='omega'?'히트':p.secondary==='alpha'?'러트':'히트·러트';
+ const fertility=`<p class="abop-muted">월경: ${p.menstruation.enabled?'설정됨':'없음'} · 임신 능력: ${p.fertile.gestate?'있음':'없음'}</p>`;
+ const label={enabled:'사용 중',disabled:'추적 비활성',absent:'주기 없음',unset:'미설정'}[m]||'미설정';
+ const row=(name,h)=>`<div class="abop-line"><span>${name}</span> <b>${html(remainingLabel(h))}</b></div>`;
+ let lines=`<p>현재 상태: <b>${f.paused?'임신·출산 관련 주기 중단':m==='enabled'?cyclePhaseLabel(f.phase):label}</b></p>`;
+ if(m==='enabled'&&!f.paused){
+  lines+=row('현재 단계 종료',f.currentEndHours);
+  lines+=row('다음 전조',f.nextProdromeHours);
+  lines+=row(`다음 ${category}`,f.nextActiveHours);
+  lines+=row(`${category} 종료 · 회복 시작`,f.nextRecoveryHours);
+  lines+=row('회복 완료 · 안정기 시작',f.nextQuietHours);
+ }else if(m!=='enabled')lines+=`<p class="abop-muted">${label} — ${category}의 남은 시간을 계산하지 않습니다.</p>`;
+ if(f.menstruationStatus==='active')lines+=`<p>월경 중</p>${row('현재 월경 종료',f.menstruationEndHours)}${row('다음 월경',f.nextMenstruationHours)}`;
+ else if(f.menstruationStatus==='waiting')lines+=row('다음 월경',f.nextMenstruationHours);
+ else if(f.menstruationStatus==='paused')lines+='<p>월경: 임신·출산 관련 중단 (재개일 미확정)</p>';
+ else if(f.menstruationStatus==='unknown')lines+='<p>다음 월경: 기준 시점 미확정</p>';
+ else lines+='<p>다음 월경: 해당 없음</p>';
+ lines+=fertility;
+ if(m==='enabled'&&!f.paused)lines+=`<p class="abop-muted">본능 행동화: ${(instinctChance(p,f.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p>`;
+ if(m==='enabled')lines+=`<details><summary>주기 설정값</summary><p>간격: ${fmt(p.cycle.intervalHours/24)}일 · 전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일 · 회복: ${fmt(p.cycle.recoveryHours)}시간</p></details>`;
+ return lines;
 }
 function renderTimeSyncPreview(m){
  const saved=m.timeSyncInfo;
@@ -460,7 +482,7 @@ function selectedSection(){
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
   <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">D${Math.floor(e.at/24)} · ${html(e.kind)} ${html(e.person||'')}</div>`).join('')||'기록 없음'}</details></section>`;
- if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · ${p.cycle.enabled?'생리 주기':p.menstruation.enabled?'월경 · 약물':'주기 없음 · 약물'}</header><p class="abop-title">${html(p.name)}</p>${cycleOverview(p)}
+ if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · ${p.cycle.enabled?'주기 현황':p.menstruation.enabled?'월경 현황 · 약물':'주기 없음 · 약물'}</header><p class="abop-title">${html(p.name)}</p>${cycleOverview(p,state.clockHours,state.seed)}
  <details><summary>약물 · 부작용 · 내성</summary><p class="abop-muted">복용 ${p.medication.length}건 · 부작용 기록 ${p.adverse.length}건</p>
  ${(p.adverse||[]).slice(-4).map(x=>`<div class="abop-line">${html(x.drug)} · ${html((x.symptoms||[x.type||'기타']).join(', '))}${Number.isFinite(x.until)&&x.until<state.clockHours?' (경과)':''}</div>`).join('')||'<p class="abop-muted">부작용 기록 없음</p>'}
  <p class="abop-muted">내성: ${html(Object.entries(p.tolerance||{}).map(([k,v])=>`${k} ${v}`).join(' · ')||'기록 없음')}</p>
@@ -469,7 +491,7 @@ function selectedSection(){
  <button data-action="recordMedication" data-role="${id}">확인된 복용 기록</button></div>
  <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
  if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html((p.bondPartners||[]).map(pid=>state.people[pid]?.name||pid).join(', ')||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">장면: ${html(p.scene.posture||'—')} · ${html(p.scene.contact||'—')}</p><p class="abop-muted">최근 장면: ${p.recentScenes.length}/3</p></section>`).join('')}</div>`;
+ if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">진행 중인 장면: ${html(sceneRecordSummary(p.scene))}</p><p class="abop-muted">완료된 장면 기록: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>최근 완료 장면 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line">${html(sceneRecordSummary(scene))}</div>`).join('')}</details>`:''}</section>`).join('')}</div>`;
  const shared=sharedAnalysisSettings();
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
@@ -542,7 +564,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.26</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.30</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;

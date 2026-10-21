@@ -17,7 +17,7 @@
 ### v0.3.17: 모바일 패널 레이아웃 수정
 모바일에서 패널을 실제 표시 영역에 맞춰 전체 화면으로 열고 상단 헤더/닫기, 가로 탭, 하단 상태줄은 항상 보이게 합니다. 상태·설정 내용만 독립적으로 스크롤하며, 성별/ABO 등 입력은 한 열로 표시합니다. PC 레이아웃과 분석 데이터/계산 규칙은 변경하지 않습니다.
 
-# 그날의 사정 v0.3.27 Beta — 설치 및 업데이트
+# 그날의 사정 v0.3.30 Beta — 설치 및 업데이트
 
 SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 않습니다.
 
@@ -47,7 +47,7 @@ SillyTavern 기본 확장 API로 작동합니다. Tavern Helper가 필요하지 
 3. **ZIP 파일 자체를 하나만 업로드하지 마세요.** 반드시 압축 해제한 내용물을 업로드해야 합니다.
 4. 기존 파일을 GitHub 웹 UI에서 동일 이름으로 교체하기 어렵다면 GitHub Desktop의 파일 복사·커밋·Push 방식을 이용하거나, 저장소를 새롭게 재구성하세요. 중복 폴더를 생성하지 마세요.
 5. SillyTavern 확장 관리 → 업데이트를 실행하고 브라우저를 새로고침합니다. 변경된 CSS가 그대로라면 강력 새로고침(Ctrl+Shift+R)을 해 보세요.
-6. 창 상단에 **v0.3.27**이 표시되는지 확인하세요.
+6. 창 상단에 **v0.3.30**이 표시되는지 확인하세요.
 
 > **월드 인포 동기화 필요:** 기존 v3.4를 가져온 경우 해당 책의 `PREG-02` 항목을 이번 파일 내용으로 교체해 주세요. 이미 가져온 월드 인포는 확장 업데이트만으로 바뀌지 않습니다. 같은 책을 중복으로 불러오지는 마세요. 신규 설치라면 `worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json`을 가져오세요.
 
@@ -284,3 +284,18 @@ v0.3.26~v0.3.27 각인·러트 및 문맥 판정 규칙은 BOND_DESIGN_KO.md 참
 
 ## v0.3.27 — Semantic bond evidence gate
 Completed nape bites and explicit completed-bond narration can be recognized without a literal pheromone-gland keyword. Evidence is classified confirmed / uncertain / not_established; only confirmed new acts are persisted. Flashbacks, hypothetical bites, and negation are excluded. Core still validates Alpha -> Omega, nape and event flags.
+
+
+## v0.3.29 — 주기 현황 예측
+현재 서사 시각을 기준으로 다음 전조, 히트/러트, 회복 시작/완료, 월경까지 남은 시간을 표시합니다. 정적 설정은 접기 영역으로 이동했습니다. 남성/여성 베타는 히트/러트 없는 월경·임신 가능 구조를 별도로 점검합니다.
+
+
+### v0.3.29 취향/장면 표시 개선
+- 취향 및 장면 데이터의 내부 ID는 변경하지 않고 표시명만 한국어로 변환합니다. 사전에 없는 항목은 원문 그대로 표시합니다.
+- `진행 중인 장면`과 `완료된 장면 기록(최대 3건)`을 분리합니다. `0/3`은 오류나 선호 점수가 아닙니다.
+- 완료된 장면은 접이식 목록에서 확인할 수 있습니다.
+
+
+### v0.3.30 확장 실행 버튼 정리
+- 확장 메뉴에서 여는 기능만 유지하고, 확장 설정 화면에 생성되던 중복 실행 패널은 삭제합니다.
+- 이전 버전의 중복 패널이 남은 경우에도 로딩 중 제거합니다.

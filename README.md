@@ -11,7 +11,7 @@ Stage 1 finds NPC names from Korean/English labels, name fields, profile heading
 ### v0.3.17: Mobile panel layout fix
 Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
 
-# 그날의 사정 v0.3.27 (Beta)
+# 그날의 사정 v0.3.30 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -170,3 +170,18 @@ See BOND_DESIGN_KO.md for the consolidated bond, rut and semantic-evidence rules
 
 ## v0.3.27 — Semantic bond evidence gate
 Completed nape bites and explicit completed-bond narration can be recognized without a literal pheromone-gland keyword. Evidence is classified confirmed / uncertain / not_established; only confirmed new acts are persisted. Flashbacks, hypothetical bites, and negation are excluded. Core still validates Alpha -> Omega, nape and event flags.
+
+
+## v0.3.29 — 주기 현황 예측
+현재 서사 시각을 기준으로 다음 전조, 히트/러트, 회복 시작/완료, 월경까지 남은 시간을 표시합니다. 정적 설정은 접기 영역으로 이동했습니다. 남성/여성 베타는 히트/러트 없는 월경·임신 가능 구조를 별도로 점검합니다.
+
+
+### v0.3.29 취향/장면 표시 개선
+- 취향 및 장면 데이터의 내부 ID는 변경하지 않고 표시명만 한국어로 변환합니다. 사전에 없는 항목은 원문 그대로 표시합니다.
+- `진행 중인 장면`과 `완료된 장면 기록(최대 3건)`을 분리합니다. `0/3`은 오류나 선호 점수가 아닙니다.
+- 완료된 장면은 접이식 목록에서 확인할 수 있습니다.
+
+
+### v0.3.30 확장 실행 버튼 정리
+- 확장 메뉴에서 여는 기능만 유지하고, 확장 설정 화면에 생성되던 중복 실행 패널은 삭제합니다.
+- 이전 버전의 중복 패널이 남은 경우에도 로딩 중 제거합니다.

@@ -95,7 +95,11 @@ export const PREFERENCE_LABELS = Object.freeze({
   "physical_affection": "신체적 애정 표현",
   "intimacy_avoidance": "친밀감 회피",
   "being_needed": "필요로 여겨지기",
-  "being_desired": "욕망의 대상이 되기"
+  "being_desired": "욕망의 대상이 되기",
+  "being_called_cute": "귀엽다는 말을 듣기",
+  "bonding_with_user": "유저와 유대 형성",
+  "tight_squeezing": "강하게 쥐거나 조이기",
+  "contact_request": "접촉 요청"
 });
 export const PREFERENCE_LEVELS = Object.freeze({
   "latent": "잠재적 관심",
@@ -163,4 +167,24 @@ export function preferenceIdFromEdit(text, previousId='', previousLabel='') {
   if (Object.hasOwn(PREFERENCE_LABELS, edited.toLowerCase())) return edited.toLowerCase();
   const lookup=Object.entries(PREFERENCE_LABELS).find(([,label])=>label===edited);
   return lookup?.[0] ?? edited;
+}
+
+/** Presentation only: raw scene values remain untouched in event/state storage. */
+export const SCENE_LABELS = Object.freeze({
+  'on_back':'등을 대고 누운 자세', 'on_stomach':'엎드린 자세',
+  'standing':'서 있는 자세', 'sitting':'앉은 자세', 'kneeling':'무릎 꿇은 자세',
+  'lying_down':'누운 자세', 'side_lying':'옆으로 누운 자세',
+  'penetration':'삽입', 'kissing':'입맞춤', 'hugging':'포옹',
+  'touching':'접촉', 'holding_hands':'손잡기', 'cuddling':'껴안기',
+  'contact_request':'접촉 요청', 'none':'없음'
+});
+export function sceneDisplayLabel(value) {
+  const raw=String(value??'').trim();
+  if (!raw) return '—';
+  return SCENE_LABELS[raw.toLowerCase()] ?? PREFERENCE_LABELS[raw.toLowerCase()] ?? raw;
+}
+export function sceneRecordSummary(scene) {
+  if (!scene || typeof scene!=='object') return '기록 없음';
+  const parts=[scene.posture,scene.contact,...(Array.isArray(scene.play)?scene.play:[])].filter(Boolean).map(sceneDisplayLabel);
+  return [...new Set(parts)].join(' · ') || '세부 내용 없음';
 }
