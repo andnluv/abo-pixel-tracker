@@ -177,9 +177,11 @@ async function switchNpc(targetId){
 }
 function renderNpcTarget(){
  const m=meta(false);if(!m)return '';
- const t=npcTracking(m),active=selectedNpc(m),candidateOptions=npcCandidates.filter(x=>npcSearch&&!(x.name.toLowerCase().includes(npcSearch.toLowerCase())||x.source.toLowerCase().includes(npcSearch.toLowerCase()))?false:true);
- const registered=Object.values(t.targets);
- const options=[...registered,...candidateOptions.filter(c=>!t.targets[c.id])];
+ const t=npcTracking(m),active=selectedNpc(m),candidateOptions=npcCandidates.filter(x=>npcSearch&&!(x.name.toLowerCase().includes(npcSearch.toLowerCase())||(x.sources||[x.source]).some(source=>source.toLowerCase().includes(npcSearch.toLowerCase())))?false:true);
+ const registered=Object.values(t.targets).sort((a,b)=>Number(b.id===active?.id)-Number(a.id===active?.id));
+ // Prefer the active saved record if older versions saved the same NPC twice.
+ // Preserve existing saved target IDs; collapse duplicate discovery hits only in the selector.
+ const options=mergeNpcCandidates(registered,candidateOptions);
  const preview=options.find(x=>x.id===npcPreviewId)||null;
  return `<section class="abop-frame abop-npc"><header>◇ CHAR · 추적 대상 <small>USER 페르소나는 유지</small></header>
  <p class="abop-muted">다인·세계관 봇에서는 {{char}}가 서술자일 수 있습니다. NPC를 직접 지정하면 해당 인물의 설정과 사건만 CHAR로 관리합니다.</p>
@@ -188,8 +190,8 @@ function renderNpcTarget(){
  <div class="abop-actions"><button type="button" data-action="scanNPCs" ${working?'disabled':''}>1차 · NPC 찾기</button><button type="button" data-action="scanNPCsAI" ${working||npcScanChatId!==S().chatId||!npcReviewEntries.length?'disabled':''}>2차 · AI 보조 탐색</button></div>
  <p class="abop-muted">${npcScanChatId===S().chatId?`NPC 후보 ${npcCandidates.length}명 · 검토 가능 항목 ${npcReviewEntries.length}개 / 전체 ${npcScanStats?.entryCount||0}개`:'검색 전'} · AI 보조 탐색은 수동 실행이며 추가 API 비용이 발생할 수 있습니다. AI 후보는 원문 근거를 확인한 후 선택하세요.</p>
  <label class="abop-fieldlabel">이름 검색<input type="search" id="abop-npc-search" data-npc-search value="${html(npcSearch)}" placeholder="이름 또는 월드 인포 이름" /></label>
- <label class="abop-fieldlabel">검색/저장된 인물<select id="abop-npc-select"><option value="">NPC 선택…</option>${options.map(x=>`<option value="${html(x.id)}" ${(npcPreviewId||active?.id)===x.id?'selected':''}>${html(x.name)} · ${html(x.source||'직접 추가')}${t.targets[x.id]?' · 저장됨':x.needsReview?' · AI 후보(확인 필요)':''}</option>`).join('')}</select></label>
- ${preview?`<details class="abop-advanced"><summary>선택한 후보 정보 확인${preview.needsReview?' · AI 보조 후보':''}</summary><p class="abop-muted">원본: ${html(preview.source)} · 선택하기 전 내용 확인 가능</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto">${html(String(preview.card||'').slice(0,2200))}</pre></details>`:''}
+ <label class="abop-fieldlabel">검색/저장된 인물<select id="abop-npc-select"><option value="">NPC 선택…</option>${options.map(x=>`<option value="${html(x.id)}" ${(npcPreviewId||active?.id)===x.id?'selected':''}>${html(x.name)} · ${html(x.source||'직접 추가')}${x.sources?.length>1?` (+${x.sources.length-1}개 출처)`:''}${t.targets[x.id]?' · 저장됨':x.needsReview?' · AI 후보(확인 필요)':''}</option>`).join('')}</select></label>
+ ${preview?`<details class="abop-advanced"><summary>선택한 후보 정보 확인${preview.needsReview?' · AI 보조 후보':''}</summary><p class="abop-muted">원본: ${html((preview.sources?.length?preview.sources:[preview.source]).join(' / '))} · 선택하기 전 내용 확인 가능</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto">${html(String(preview.card||'').slice(0,2200))}</pre></details>`:''}
  <div class="abop-actions"><button type="button" class="abop-primary" data-action="selectNpc">이 NPC 추적</button></div>
  <details><summary>＋ NPC 직접 추가</summary><label class="abop-fieldlabel">이름<input id="abop-npc-name" maxlength="100" placeholder="캐릭터 이름" /></label>
  <label class="abop-fieldlabel">다른 이름·호칭 (쉼표로 구분)<input id="abop-npc-aliases" placeholder="영문명, 별명" /></label>
@@ -505,7 +507,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.20</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.21</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;

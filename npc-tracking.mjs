@@ -83,23 +83,71 @@ function buildCandidate(source,member,discovery='rules'){
   card:String(member.card||'').slice(0,12000),aliases:(member.aliases||[]).filter(v=>typeof v==='string').slice(0,12),
   discovery,originKind:member.kind||'ai',needsReview:discovery==='ai',...inferExplicit(member.card||'')};
 }
+/* Candidates are still persisted under the original source-scoped ID. Only the
+ * discovery/display collection is coalesced: never rewrite saved tracking IDs.
+ * Two people with the same name but unrelated descriptions remain distinct. */
+function identityName(name){
+ return String(name||'').normalize('NFKC').toLocaleLowerCase().replace(/[\s·._\-()（）]/gu,'');
+}
+function profileText(card){
+ return String(card||'').normalize('NFKC').toLocaleLowerCase()
+  .replace(/^#{1,5}\s+[^\n]*\n/gmu,'')
+  .replace(/^alias\s*:[^\n]*\n/gmu,'')
+  .replace(/[^\p{L}\p{N}]+/gu,'');
+}
+function profileSimilarity(a,b){
+ if(!a||!b)return 0;
+ if(a===b)return 1;
+ const shortest=Math.min(a.length,b.length);
+ if(shortest>=18&&(a.includes(b)||b.includes(a)))return 1;
+ // Character trigrams tolerate changes in formatting, while resisting two
+ // unrelated namesakes being merged just because their display names match.
+ if(shortest<36)return 0;
+ const grams=t=>{const v=new Set();for(let i=0;i<t.length-2;i++)v.add(t.slice(i,i+3));return v;};
+ const x=grams(a),y=grams(b);let common=0;
+ for(const token of x)if(y.has(token))common++;
+ const overlap=common/Math.min(x.size,y.size);
+ const jaccard=common/(x.size+y.size-common);
+ return overlap>=0.72&&jaccard>=0.43?overlap:0;
+}
+export function isSameNpcCandidate(a,b){
+ if(!a?.name||!b?.name)return false;
+ if(a.id===b.id)return true;
+ if(identityName(a.name)!==identityName(b.name))return false;
+ // Across World Info sources a repeated profile is usually the same person.
+ // Do not merge bare name-only mentions or unrelated namesakes.
+ if(profileSimilarity(profileText(a.card),profileText(b.card))>0)return true;
+ // Group lists may only mention a name/codename while a separate entry holds
+ // the entire bio. A shared, nontrivial alias confirms their identity.
+ const aAliases=new Set((a.aliases||[]).map(identityName).filter(x=>x.length>=2&&x!==identityName(a.name)));
+ const corroborated=(b.aliases||[]).some(v=>aAliases.has(identityName(v)));
+ return corroborated&&(a.originKind==='group'||b.originKind==='group');
+}
+function npcSources(candidate){
+ return [...new Set([...(candidate.sources||[]),candidate.source].filter(Boolean))];
+}
 export function mergeNpcCandidates(existing=[],incoming=[]){
- const found=[],index=new Map();
+ const found=[];
  for(const candidate of [...existing,...incoming]){
   if(!candidate?.id||!candidate?.name)continue;
-  const key=candidate.id;
-  if(!index.has(key)){index.set(key,found.length);found.push(candidate);continue;}
-  const old=found[index.get(key)];
-  // Keep deterministic rule-discovered profiles rather than replacing them with suggestions.
-  if(old.discovery!=='ai'&&candidate.discovery==='ai')continue;
+  const index=found.findIndex(old=>isSameNpcCandidate(old,candidate));
+  if(index<0){found.push({...candidate,sources:npcSources(candidate)});continue;}
+  const old=found[index];
+  const sources=[...new Set([...npcSources(old),...npcSources(candidate)])];
+  const aliases=[...new Set([...(old.aliases||[]),...(candidate.aliases||[])])].slice(0,12);
   const oldDetail=old.card?.length||0,newDetail=candidate.card?.length||0;
-  if(candidate.originKind==='explicit'&&old.originKind==='group'||newDetail>oldDetail&&candidate.discovery!=='ai'&&!(old.originKind==='explicit'&&candidate.originKind==='group'))found[index.get(key)]={...candidate,aliases:[...new Set([...(old.aliases||[]),...(candidate.aliases||[])])].slice(0,12)};
-  else old.aliases=[...new Set([...(old.aliases||[]),...(candidate.aliases||[])])].slice(0,12);
+  // Rich standalone descriptions beat group snippets. AI candidates never
+  // replace rule-discovered profiles. Preserve the first ID in all cases.
+  const better=candidate.discovery!=='ai' && (old.discovery==='ai'||
+    (candidate.originKind==='explicit'&&old.originKind==='group')||
+    (newDetail>oldDetail&&!(old.originKind==='explicit'&&candidate.originKind==='group')));
+  found[index]=better?{...candidate,id:old.id,source:old.source,sources,aliases}:
+   {...old,sources,aliases};
  }
  return found;
 }
 export function discoverNpcProfilesDetailed(worldSources=[]){
- const candidates=[],reviewEntries=[];let entryCount=0,matchedCount=0,emptyCount=0;
+ const candidates=[],reviewEntries=[],seenReviewEntries=new Set();let entryCount=0,matchedCount=0,emptyCount=0;
  for(const source of worldSources){
   if(!source||!source.name)continue;
   const entries=normalizeWorldEntries(source.data);
@@ -114,7 +162,13 @@ export function discoverNpcProfilesDetailed(worldSources=[]){
    const comment=String(entry?.comment||entry?.name||'');
    const groupOrAmbiguous=direct.some(p=>p.kind==='group')||GROUP_NAME.test(commentName(entry)||comment);
    const possiblePerson=/(?:NPC|등장인물|인물|캐릭터|Character|Profile|이름\s*[:：]|Name\s*[:：]|(?:성격|외모|말투)\s*[:：])/iu.test(`${comment}\n${content}`);
-   if((!direct.length&&possiblePerson)||groupOrAmbiguous)reviewEntries.push({source:source.name,entryIndex,comment,content});
+   if((!direct.length&&possiblePerson)||groupOrAmbiguous){
+    const reviewKey=`${comment.normalize('NFKC')}\0${content.normalize('NFKC')}`;
+    if(!seenReviewEntries.has(reviewKey)){
+     seenReviewEntries.add(reviewKey);
+     reviewEntries.push({source:source.name,entryIndex,comment,content});
+    }
+   }
   }
  }
  return {profiles:mergeNpcCandidates([],candidates),reviewEntries,stats:{entryCount,matchedCount,emptyCount,reviewCount:reviewEntries.length}};
@@ -194,8 +248,8 @@ export function namedTarget(name,description='',source='직접 추가',aliases=[
  return {id:npcTargetId('manual',clean),name:clean,card,source,aliases:aliases.filter(Boolean).slice(0,12),...inferExplicit(card)};
 }
 export function npcCanon(target){
- const {id,name,card,source,aliases=[],sex='unknown',secondary='unknown',anatomy=null,preferences}=target;
- return {id,name,card,source,aliases,sex,secondary,anatomy,...(preferences?{preferences}:{})};
+ const {id,name,card,source,sources=[],aliases=[],sex='unknown',secondary='unknown',anatomy=null,preferences}=target;
+ return {id,name,card,source,...(sources.length?{sources}:{}),aliases,sex,secondary,anatomy,...(preferences?{preferences}:{})};
 }
 export function sharedEvent(event){
  if(event?.kind==='time_advance')return true;

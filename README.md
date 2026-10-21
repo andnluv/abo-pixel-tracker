@@ -1,11 +1,11 @@
-## v0.3.20 — Two-stage World Info NPC discovery
+## v0.3.21 — Two-stage World Info NPC discovery
 
 Stage 1 finds NPC names from Korean/English labels, name fields, profile headings, and lists of multiple characters. Stage 2 is an **opt-in** AI-assisted search of unclassified but potentially relevant entries and group entries; it sends the selected excerpts through the configured analysis connection and may cost tokens/money. Every AI-suggested NPC must have an exact source quote containing the name; users review the source excerpt and manually choose an NPC to track. Long scans progress in batches of eight API requests per button click. There are no age filters for discovery. Original World Info and existing chat records are not modified. This does not guarantee finding every character, and unreadable World Info sources cannot be analyzed.
 
 ### v0.3.17: Mobile panel layout fix
 Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
 
-# 그날의 사정 v0.3.20 (Beta)
+# 그날의 사정 v0.3.21 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -141,3 +141,8 @@ ABO Pixel Tracker is implemented separately; it does not include or modify Koofe
 - The AI suggests ABO type based on the existing personality, established preferences, and narrative characterization. It does not reuse the status panel's pre-analysis seeded value.
 - Genital form alone uses a stable candidate-pool assignment based on sex and the selected ABO. Explicit card facts and manual settings always take precedence.
 - Both are editable suggestions and remain unapplied until selected.
+
+## v0.3.21 Deduplicated NPC discovery
+- Coalesce identical NPCs found in both embedded and linked World Info, using corroborated descriptions or group aliases rather than display name alone.
+- Keep source provenance and existing persisted NPC target IDs and histories unchanged.
+- Avoid resubmitting identical World Info excerpts to the optional AI NPC discovery pass. Different people who share a name remain distinct when their profiles do not agree.
