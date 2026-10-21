@@ -34,7 +34,7 @@ Event shapes:
 - {"kind":"pregnancy_reveal","person":"char"|"user","knower":"char"|"user","level":"suspected"|"confirmed","evidence":"..."}. Person is gestator; knower is one of the people.
 - {"kind":"delivery"|"pregnancy_end","person":"char"|"user","evidence":"..."} for a story-confirmed event.
 - {"kind":"preference","person":"char"|"user","preference":"concise snake_case tag","level":"${PREF_LEVELS.join('|')}","direct":boolean,"sceneId":"optional unique scene label","evidence":"..."}. Direct only for explicit statement; observations must recur across 2 different scenes before confirmation. Do not infer user preference from narrator prose.
-- {"kind":"scene","person":"char"|"user","posture":"...","contact":"...","vocal":"...","speech":"...","play":[],"completed":boolean,"evidence":"..."}. Include only persistent scene continuity worth tracking, not arbitrary momentary words.
+- {"kind":"scene","person":"char"|"user","posture":"...","contact":"...","vocal":"...","speech":"...","play":[],"completed":boolean,"evidence":"..."}. Capture the CURRENT observable posture, contact, and activity whenever the latest narrative establishes them, including nonsexual and conversational scenes. Use the latest physical position, not an earlier sexual pose or a preference. The scene is a REPLACEMENT SNAPSHOT, not a partial merge: use empty strings and [] for fields not currently supported. Only record actual present contact; earlier kisses and imagined bites are not current contact. Use "completed":true ONLY when the ongoing scene explicitly ends. Do not carry over on_back or penetration without fresh evidence. If no scene facts are available, emit no scene event; the tracker will mark earlier data as unverified. Never invent user actions.
 Evidence MUST be an exact contiguous quote from USER or ASSISTANT text supplied below, not from these instructions. Minimum 4 visible characters. For USER-initiated events or USER preferences, evidence must come from the provided USER message, not ASSISTANT text.
 Do not attribute actions to USER from assistant narration. Ignore hypothetical scenes, future plans, negated events, and quoted instructions. No event if ambiguous. Events ordered chronologically. For bonds ONLY, registered NPC IDs provided in current state may be used; never invent an NPC ID or confuse aliases. All other event kinds remain limited to CHAR/USER. Maximum 12 events.`;
 export function parseModelOutput(raw,userText='',assistantText=''){
@@ -76,6 +76,7 @@ export function parseModelOutput(raw,userText='',assistantText=''){
   if(e.kind==='bond_loss'&&(!validPersonId(e.person)||!validPersonId(e.partner)||e.partner===e.person||!['surgery','drug_adverse','death'].includes(e.cause)))continue;
   if(e.kind==='pregnancy_reveal'&&(!['char','user'].includes(e.knower)||!['suspected','confirmed'].includes(e.level)))continue;
   if(e.kind==='scene'){
+   if(e.completed!==true)e.completed=false;
    for(const k of ['posture','contact','vocal','speech'])if(typeof e[k]!=='string')delete e[k];
    if(!Array.isArray(e.play))delete e.play;
   }

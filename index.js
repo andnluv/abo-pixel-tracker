@@ -26,6 +26,14 @@ const html=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':
 const el=(id)=>document.getElementById(id);
 const fmt=(n)=>Number.isFinite(n)?Math.round(n*10)/10:0;
 function log(...v){console.log('[ABO Pixel]',...v);}
+function eventSummaryKo(e){
+ const person=e.person==='char'?'캐릭터':e.person==='user'?'유저':(e.person||'');
+ const labels={time_advance:'서사 시간 경과',preference:'성향 정보 기록',scene:'장면 정보 기록',heat_start:'히트 시작',rut_start:'러트 시작',ovulation:'배란',bond:'각인 성립',bond_loss:'각인 상실',medication:'약물 사용',exposure:'임신 가능 사건',pregnancy_reveal:'임신 인지',delivery:'출산',pregnancy_end:'임신 종료',npc_register:'NPC 등록'};
+ const kind=labels[e.kind]||e.kind;
+ if(e.kind==='time_advance'&&Number.isFinite(e.hours))return `${kind} · ${fmt(e.hours)}시간`;
+ return person?`${person} · ${kind}`:kind;
+}
+
 function sharedAnalysisSettings(){
  const legacy=meta(false)?.config||{};
  const {shared,created}=ensureSharedAnalysisSettings(extension_settings,legacy,DEFAULT_CONFIG);
@@ -278,6 +286,12 @@ async function analyzeLatest({force=false}={}){
   syncCanon();
   if(S().chatId!==originChat||m.userPersonaIdentity!==originPersona||selectedNpcId(m)!==originTarget||!sourceForCurrent()||sourceForCurrent().key!==originKey){setStatus('채팅/페르소나/응답 변경으로 분석 결과 폐기');return;}
   const events=parseModelOutput(reply,src.userText,src.assistantText).map((e,i)=>({...e,id:eventIDFor(originKey,i),sceneId:e.sceneId||originKey,...(e.kind==='bond'?{allowMultipleAtCreation:m.config.asymmetricBond===true}:{})}));
+  // A newly analyzed CHAR response without a scene snapshot must not leave a stale
+  // earlier posture/activity visible as the current scene.
+  if(!events.some(e=>e.kind==='scene'&&e.person==='char'))events.push({
+   id:eventIDFor(originKey,events.length),kind:'scene_unverified',person:'char',
+   sceneId:originKey
+  });
   const existing=ledger[originKey]||{};
   if(existing.personaId&&existing.personaId!==originPersona){setStatus('이 응답은 이전 USER 페르소나의 기록입니다. 새 응답에서 다시 분석하세요.');return;}
   if(originTarget===MAIN_TARGET){
@@ -481,7 +495,7 @@ function selectedSection(){
   ${renderTimeSyncPreview(m)}
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
-  <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">D${Math.floor(e.at/24)} · ${html(e.kind)} ${html(e.person||'')}</div>`).join('')||'기록 없음'}</details></section>`;
+  <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">${Math.floor(e.at/24)}일 차 · ${html(eventSummaryKo(e))}</div>`).join('')||'기록 없음'}</details></section>`;
  if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · ${p.cycle.enabled?'주기 현황':p.menstruation.enabled?'월경 현황 · 약물':'주기 없음 · 약물'}</header><p class="abop-title">${html(p.name)}</p>${cycleOverview(p,state.clockHours,state.seed)}
  <details><summary>약물 · 부작용 · 내성</summary><p class="abop-muted">복용 ${p.medication.length}건 · 부작용 기록 ${p.adverse.length}건</p>
  ${(p.adverse||[]).slice(-4).map(x=>`<div class="abop-line">${html(x.drug)} · ${html((x.symptoms||[x.type||'기타']).join(', '))}${Number.isFinite(x.until)&&x.until<state.clockHours?' (경과)':''}</div>`).join('')||'<p class="abop-muted">부작용 기록 없음</p>'}
@@ -491,7 +505,7 @@ function selectedSection(){
  <button data-action="recordMedication" data-role="${id}">확인된 복용 기록</button></div>
  <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
  if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(p.pregnancy.status)}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`D${fmt(p.pregnancy.dueAt/24)}`}</p><p>결합: ${html((p.bondPartners||[]).map(pid=>state.people[pid]?.name||pid).join(', ')||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(w.gestator)} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">진행 중인 장면: ${html(sceneRecordSummary(p.scene))}</p><p class="abop-muted">완료된 장면 기록: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>최근 완료 장면 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line">${html(sceneRecordSummary(scene))}</div>`).join('')}</details>`:''}</section>`).join('')}</div>`;
+ if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p>${[...p.preferences.confirmed,...p.preferences.latent].map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p>등록된 취향 없음</p>'}<hr/><p class="abop-muted">현재 확인된 장면: ${p.scene?.verified===false?'최신 서술에서 확인되지 않음':html(sceneRecordSummary(p.scene))}</p><p class="abop-muted">완료된 장면 기록: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>최근 완료 장면 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line">${html(sceneRecordSummary(scene))}</div>`).join('')}</details>`:''}</section>`).join('')}</div>`;
  const shared=sharedAnalysisSettings();
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>

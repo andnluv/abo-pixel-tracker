@@ -450,13 +450,27 @@ export function applyEvent(state,input){
  case 'pregnancy_end':if(p&&state.config.pregnancyEnabled!==false){p.pregnancy.status='ended';p.cycle.anchorHour=state.clockHours+pickInt(state.seed,`recover:${e.id}`,28,42)*24;}break;
  case 'preference':if(p)applyPreference(p,e);break;
  case 'scene':if(p){
-   const fields=['posture','contact','vocal','speech'];for(const f of fields)if(typeof e[f]==='string')p.scene[f]=e[f].slice(0,90);
-   if(Array.isArray(e.play))p.scene.play=e.play.filter(x=>typeof x==='string').slice(0,8);
-   if(e.completed){p.recentScenes.push({at:state.clockHours,posture:p.scene.posture,contact:p.scene.contact,vocal:p.scene.vocal,speech:p.scene.speech,play:p.scene.play});p.recentScenes=p.recentScenes.slice(-3);p.scene={posture:'',contact:'',vocal:'',speech:'',play:[]};}
+   // A scene observation is a complete snapshot, never a merge with an old pose.
+   const previous=p.scene||{};
+   const next={posture:'',contact:'',vocal:'',speech:'',play:[]};
+   for(const f of ['posture','contact','vocal','speech'])if(typeof e[f]==='string')next[f]=e[f].slice(0,90);
+   if(Array.isArray(e.play))next.play=e.play.filter(x=>typeof x==='string').slice(0,8);
+   if(e.completed===true){
+    const finished=Object.values(next).some(v=>Array.isArray(v)?v.length:!!v)?next:previous;
+    if(Object.values(finished).some(v=>Array.isArray(v)?v.length:!!v)){
+     p.recentScenes.push({at:state.clockHours,...finished});p.recentScenes=p.recentScenes.slice(-3);
+    }
+    p.scene={...next,verified:false,posture:'',contact:'',vocal:'',speech:'',play:[]};
+   }else p.scene={...next,verified:true};
+   break;
+ }
+ case 'scene_unverified':if(p){
+   // Preserve saved history; do not represent an old snapshot as a current fact.
+   p.scene={posture:'',contact:'',vocal:'',speech:'',play:[],verified:false};
    break;
  }
  }
- state.events.push({id:e.id,kind:e.kind,person:e.person||null,at:state.clockHours});
+ state.events.push({id:e.id,kind:e.kind,person:e.person||null,at:state.clockHours,...(e.kind==='time_advance'&&Number.isFinite(Number(e.hours))?{hours:Number(e.hours)}:{})});
  updateCycles(state);
 }
 export function replay(seed,canon,config,rows,overrides={}){
