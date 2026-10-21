@@ -1,7 +1,11 @@
+## v0.3.20 — Two-stage World Info NPC discovery
+
+Stage 1 finds NPC names from Korean/English labels, name fields, profile headings, and lists of multiple characters. Stage 2 is an **opt-in** AI-assisted search of unclassified but potentially relevant entries and group entries; it sends the selected excerpts through the configured analysis connection and may cost tokens/money. Every AI-suggested NPC must have an exact source quote containing the name; users review the source excerpt and manually choose an NPC to track. Long scans progress in batches of eight API requests per button click. There are no age filters for discovery. Original World Info and existing chat records are not modified. This does not guarantee finding every character, and unreadable World Info sources cannot be analyzed.
+
 ### v0.3.17: Mobile panel layout fix
 Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
 
-# 그날의 사정 v0.3.16 (Beta)
+# 그날의 사정 v0.3.20 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -54,7 +58,7 @@ The STATUS tab now supports **Normal Character** (unchanged default) and **Multi
 
 Each selected NPC has its own stored source profile, manual CHAR overrides and CHAR event log. The USER persona and ordinary USER/time events are shared. Switching the NPC does not delete prior NPC records. NPC-specific partner interactions (pregnancy risk, bond) are **not yet merged globally across multiple NPCs**; this is one active CHAR at a time, not concurrent multi-NPC reproduction. Model instructions avoid attributing other NPC events to the selected NPC, but a real RP run is still required to verify identity classification.
 
-Existing chat metadata and 1:1 behavior remain under their old keys. The extension does not alter world-info content; only the selected source excerpt is persisted in this chat. World-info fetches require access to SillyTavern's `/api/worldinfo/get` endpoint. Minor NPC profiles and non-NPC world rule entries are excluded from the suggestion list. Back up the chat and test this beta before relying on it for long RP sessions.
+Existing chat metadata and 1:1 behavior remain under their old keys. The extension does not alter world-info content; only the selected source excerpt is persisted in this chat. World-info fetches require access to SillyTavern's `/api/worldinfo/get` endpoint. Non-NPC world rule entries are excluded from the suggestion list. Back up the chat and test this beta before relying on it for long RP sessions.
 
 ## Changes since v0.2.0
 

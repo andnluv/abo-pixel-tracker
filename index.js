@@ -9,7 +9,7 @@ import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLe
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 import {normalizeSetupOutputTokens,MIN_SETUP_OUTPUT_TOKENS,MAX_SETUP_OUTPUT_TOKENS} from './setup-options.mjs';
 import {buildProfileSetupInput} from './profile-setup-input.mjs';
-import {MAIN_TARGET,npcCanon,discoverNpcProfiles,namedTarget,sharedEvent,combineNpcRecords} from './npc-tracking.mjs';
+import {MAIN_TARGET,npcCanon,discoverNpcProfilesDetailed,mergeNpcCandidates,makeNpcReviewBatches,buildNpcReviewPrompt,parseNpcAiSuggestions,NPC_AI_SYSTEM,namedTarget,sharedEvent,combineNpcRecords} from './npc-tracking.mjs';
 import {getRequestHeaders,saveSettingsDebounced} from '/script.js';
 import {extension_settings} from '/scripts/extensions.js';
 import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from './global-analysis-settings.mjs';
@@ -19,7 +19,7 @@ const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
 let active=false, working=false, state=null, status='준비됨',panelOpen=false, tab='status', lastKey='';
 let sessionApiKey=''; // Never serialized or persisted. Cleared on page reload.
-let npcCandidates=[], npcScanChatId='', npcSearch='';
+let npcCandidates=[], npcScanChatId='', npcSearch='', npcReviewEntries=[], npcScanStats=null, npcPreviewId='', npcAiBatchOffset=0;
 const html=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const el=(id)=>document.getElementById(id);
 const fmt=(n)=>Number.isFinite(n)?Math.round(n*10)/10:0;
@@ -124,16 +124,50 @@ async function scanNpcSources(){
   for(const [label,book] of [['캐릭터 내장 월드 인포',data.character_book||ch.character_book],['현재 채팅 내장 월드 인포',c.chatMetadata?.character_book]]){
    if(book)sources.push({name:label,data:book});
   }
-  const names=[c.chatMetadata?.world_info,data.extensions?.world,ch.extensions?.world,...(Array.isArray(data.extensions?.worlds)?data.extensions.worlds:[])].filter(x=>typeof x==='string'&&x.trim());
+  const nameSources=[c.chatMetadata?.world_info,data.extensions?.world,ch.extensions?.world,data.extensions?.worlds,ch.extensions?.worlds];
+  const names=nameSources.flat(Infinity).filter(x=>typeof x==='string'&&x.trim()).map(x=>x.trim());
   let failed=[];
   for(const name of [...new Set(names)]){
    try{sources.push({name,data:await readWorldBook(name)});}catch(e){failed.push(`${name}: ${e.message}`);}
   }
   if(S().chatId!==chatId)return setStatus('채팅이 바뀌어 NPC 검색 결과를 폐기했습니다');
-  npcCandidates=discoverNpcProfiles(sources);npcScanChatId=chatId;npcSearch='';
-  setStatus(`NPC 후보 ${npcCandidates.length}명 발견${failed.length?` · 읽지 못한 월드 인포 ${failed.length}개`:''}`);
+  const result=discoverNpcProfilesDetailed(sources);
+  npcCandidates=result.profiles;npcReviewEntries=result.reviewEntries;npcScanStats=result.stats;npcScanChatId=chatId;npcSearch='';npcPreviewId='';npcAiBatchOffset=0;
+  setStatus(!sources.length?'연결된 캐릭터북 또는 읽을 수 있는 월드 인포가 없습니다':`1차 NPC 후보 ${npcCandidates.length}명 · AI 보조 탐색 대상 ${npcReviewEntries.length}개 항목${failed.length?` · 읽지 못한 월드 인포 ${failed.length}개`:''}`);
   if(failed.length)console.warn('[ABO Pixel] NPC book read warnings:',failed);
  }catch(e){console.error('[ABO Pixel] NPC discovery failed',e);setStatus(`NPC 검색 실패: ${e.message}`);}finally{working=false;render();}
+}
+/** Stage 2 never runs automatically: using the current analysis model may incur fees. */
+async function scanNpcWithAI(){
+ const c=S(),chatId=c.chatId,m=meta();
+ if(!m||working)return;
+ if(npcScanChatId!==chatId)return setStatus('먼저 1차 월드 인포 검색을 실행해 주세요');
+ if(!npcReviewEntries.length)return setStatus('추가 AI 보조 탐색 대상이 없습니다');
+ const plan=makeNpcReviewBatches(npcReviewEntries,Number.MAX_SAFE_INTEGER);
+ const start=npcAiBatchOffset;
+ const currentBatches=plan.batches.slice(start,start+8);
+ if(!currentBatches.length)return setStatus(start?'AI 보조 탐색을 모두 마쳤습니다':'AI가 분석할 유효한 월드 인포 항목이 없습니다');
+ working=true;let added=0,rejected=0,errors=0,completed=0;
+ try{
+  for(let i=0;i<currentBatches.length;i++){
+   if(S().chatId!==chatId){setStatus('채팅이 바뀌어 AI 보조 탐색을 중단했습니다');return;}
+   const batch=currentBatches[i];
+   setStatus(`AI 보조 NPC 탐색 ${start+i+1}/${plan.totalBatches} · 추가 API 비용 발생 가능`);render();
+   try{
+    const answer=await analysisRequest(NPC_AI_SYSTEM,buildNpcReviewPrompt(batch),2400);
+    if(S().chatId!==chatId){setStatus('채팅이 바뀌어 AI 보조 탐색 결과를 폐기했습니다');return;}
+    const result=parseNpcAiSuggestions(answer,batch,npcCandidates);
+    added+=result.profiles.length-npcCandidates.length;
+    rejected+=result.rejected;
+    npcCandidates=result.profiles;completed++;
+   }catch(e){errors++;console.warn('[그날의 사정] NPC AI 보조 탐색 항목 오류:',readableProfileError(e));}
+  }
+  if(npcScanChatId===chatId){
+   npcAiBatchOffset=start+currentBatches.length;
+   const more=npcAiBatchOffset<plan.totalBatches?` · 남은 ${plan.totalBatches-npcAiBatchOffset}묶음 (버튼을 다시 누르면 계속)`:'';
+   setStatus(`NPC 총 ${npcCandidates.length}명 (AI 추가 ${added}명) · 검사 ${completed}/${currentBatches.length}묶음 · 근거 미확인 제외 ${rejected}건${errors?` · 오류 ${errors}묶음`:''}${more}`);
+  }
+ }finally{working=false;render();}
 }
 async function switchNpc(targetId){
  const m=meta(),t=npcTracking(m);if(working)return setStatus('분석 완료 후 추적 대상을 변경하세요');
@@ -146,13 +180,16 @@ function renderNpcTarget(){
  const t=npcTracking(m),active=selectedNpc(m),candidateOptions=npcCandidates.filter(x=>npcSearch&&!(x.name.toLowerCase().includes(npcSearch.toLowerCase())||x.source.toLowerCase().includes(npcSearch.toLowerCase()))?false:true);
  const registered=Object.values(t.targets);
  const options=[...registered,...candidateOptions.filter(c=>!t.targets[c.id])];
+ const preview=options.find(x=>x.id===npcPreviewId)||null;
  return `<section class="abop-frame abop-npc"><header>◇ CHAR · 추적 대상 <small>USER 페르소나는 유지</small></header>
  <p class="abop-muted">다인·세계관 봇에서는 {{char}}가 서술자일 수 있습니다. NPC를 직접 지정하면 해당 인물의 설정과 사건만 CHAR로 관리합니다.</p>
  <div class="abop-actions"><button type="button" data-action="singleNpc" ${t.mode==='single'?'disabled':''}>일반 캐릭터</button><button type="button" data-action="multiNpc" ${t.mode==='multi'?'disabled':''}>다인 봇</button></div>
  ${t.mode==='multi'?`<div class="abop-npc-controls"><p class="abop-muted">현재 대상: <b>${html(active?.name||'선택되지 않음')}</b> ${active?`· ${html(active.source||'')}`:''}</p>
- <div class="abop-actions"><button type="button" data-action="scanNPCs">월드 인포에서 NPC 찾기</button><small>${npcScanChatId===S().chatId?`후보 ${npcCandidates.length}명`:'검색 전'}</small></div>
+ <div class="abop-actions"><button type="button" data-action="scanNPCs" ${working?'disabled':''}>1차 · NPC 찾기</button><button type="button" data-action="scanNPCsAI" ${working||npcScanChatId!==S().chatId||!npcReviewEntries.length?'disabled':''}>2차 · AI 보조 탐색</button></div>
+ <p class="abop-muted">${npcScanChatId===S().chatId?`NPC 후보 ${npcCandidates.length}명 · 검토 가능 항목 ${npcReviewEntries.length}개 / 전체 ${npcScanStats?.entryCount||0}개`:'검색 전'} · AI 보조 탐색은 수동 실행이며 추가 API 비용이 발생할 수 있습니다. AI 후보는 원문 근거를 확인한 후 선택하세요.</p>
  <label class="abop-fieldlabel">이름 검색<input type="search" id="abop-npc-search" data-npc-search value="${html(npcSearch)}" placeholder="이름 또는 월드 인포 이름" /></label>
- <label class="abop-fieldlabel">검색/저장된 인물<select id="abop-npc-select"><option value="">NPC 선택…</option>${options.map(x=>`<option value="${html(x.id)}" ${active?.id===x.id?'selected':''}>${html(x.name)} · ${html(x.source||'직접 추가')}${t.targets[x.id]?' · 저장됨':''}</option>`).join('')}</select></label>
+ <label class="abop-fieldlabel">검색/저장된 인물<select id="abop-npc-select"><option value="">NPC 선택…</option>${options.map(x=>`<option value="${html(x.id)}" ${(npcPreviewId||active?.id)===x.id?'selected':''}>${html(x.name)} · ${html(x.source||'직접 추가')}${t.targets[x.id]?' · 저장됨':x.needsReview?' · AI 후보(확인 필요)':''}</option>`).join('')}</select></label>
+ ${preview?`<details class="abop-advanced"><summary>선택한 후보 정보 확인${preview.needsReview?' · AI 보조 후보':''}</summary><p class="abop-muted">원본: ${html(preview.source)} · 선택하기 전 내용 확인 가능</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto">${html(String(preview.card||'').slice(0,2200))}</pre></details>`:''}
  <div class="abop-actions"><button type="button" class="abop-primary" data-action="selectNpc">이 NPC 추적</button></div>
  <details><summary>＋ NPC 직접 추가</summary><label class="abop-fieldlabel">이름<input id="abop-npc-name" maxlength="100" placeholder="캐릭터 이름" /></label>
  <label class="abop-fieldlabel">다른 이름·호칭 (쉼표로 구분)<input id="abop-npc-aliases" placeholder="영문명, 별명" /></label>
@@ -468,7 +505,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.17</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.20</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -515,6 +552,7 @@ function buildUI(){
 async function handlePanelChange(e){
  const t=e.target,m=meta();if(!m)return;
  if(t.hasAttribute('data-npc-search')){npcSearch=t.value;render();return;}
+ if(t.id==='abop-npc-select'){npcPreviewId=t.value;render();return;}
  if(t.hasAttribute('data-theme-choice')){m.config.uiTheme=t.value;
  }else if(t.dataset.proposalCheck){const field=m.initialProposal?.roles?.[t.dataset.proposalCheck]?.fields?.[Number(t.dataset.i)];if(field)field.checked=t.checked;
  }else if(t.dataset.proposalValue){
@@ -587,6 +625,7 @@ async function handlePanelClick(e){
  if(act==='singleNpc'){await switchNpc(MAIN_TARGET);return;}
  if(act==='multiNpc'){const m=meta(),t=npcTracking(m);if(m.initialProposal)t.pending[MAIN_TARGET]=m.initialProposal;t.mode='multi';t.activeId=t.activeId===MAIN_TARGET?'':t.activeId;m.initialProposal=t.pending[t.activeId]||null;await persist();refresh();setStatus('다인 봇 모드 · NPC를 선택하거나 직접 추가하세요');return;}
  if(act==='scanNPCs'){await scanNpcSources();return;}
+ if(act==='scanNPCsAI'){await scanNpcWithAI();return;}
  if(act==='selectNpc'){
   const id=el('abop-npc-select')?.value,m=meta();if(!id)return setStatus('NPC를 먼저 선택하세요');
   const t=npcTracking(m),candidate=npcCandidates.find(x=>x.id===id);
@@ -660,7 +699,7 @@ async function handlePanelClick(e){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='abo-tracker-chat-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
  }
 }
-function onEvent(){if(npcScanChatId!==S().chatId){npcCandidates=[];npcScanChatId='';npcSearch='';}refresh();
+function onEvent(){if(npcScanChatId!==S().chatId){npcCandidates=[];npcReviewEntries=[];npcScanStats=null;npcPreviewId='';npcAiBatchOffset=0;npcScanChatId='';npcSearch='';}refresh();
  // CHAT_CHANGED may precede SillyTavern's persona auto-selection. Recheck after
  // its own synchronous/async persona-lock handlers have finished.
  setTimeout(()=>refresh(),0);
