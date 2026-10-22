@@ -99,7 +99,10 @@ export const PREFERENCE_LABELS = Object.freeze({
   "being_called_cute": "귀엽다는 말을 듣기",
   "bonding_with_user": "유저와 유대 형성",
   "tight_squeezing": "강하게 쥐거나 조이기",
-  "contact_request": "접촉 요청"
+  "contact_request": "접촉 요청",
+  "romantic_commitment": "진지한 연애 관계에 대한 헌신",
+  "being_in_relationship": "연인 관계에 있기",
+  "exclusive_relationship": "독점적인 연애 관계"
 });
 export const PREFERENCE_LEVELS = Object.freeze({
   "latent": "잠재적 관심",

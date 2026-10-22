@@ -1,12 +1,12 @@
 import {recoverHistoryTime,applyHistorySync,syncedHistoryEventCount} from './time-sync.mjs';
-import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,cycleDisplay,cycleForecast,cycleMode,bondEffects,bondSeparationStress,effectivePheromoneResponse,allowedInstincts,instinctChance,pressureScore,clamp} from './core.mjs';
+import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,cycleDisplay,cycleForecast,cycleMode,bondEffects,bondSeparationStress,effectivePheromoneResponse,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
 import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,completeInitialIdentityProposal,alignInitialPhysiologyProposal,missingInitialSecondaryRoles,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
 import {user_avatar} from '/scripts/personas.js';
 import {ConnectionManagerRequestService} from '/scripts/extensions/shared.js';
 import {requestUsingProfile,extractedText,readableProfileError,profileErrorHint} from './connection.mjs';
 import {OPTION_CANDIDATES} from './profile.mjs';
-import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,instinctLabel,pregnancyLabel,sceneDisplayLabel,sceneRecordSummary,cycleModeLabel,drugLabel,adverseLabel,rateLabel,eventKindLabel,personRoleLabel} from './preference-labels.mjs';
+import {preferenceLabel,preferenceDisplayLabel,preferenceIdFromEdit,preferenceLevelLabel,attitudeLabel,cyclePhaseLabel,pregnancyLabel,sceneDisplayLabel,sceneRecordSummary,cycleModeLabel,drugLabel,adverseLabel,rateLabel,eventKindLabel,personRoleLabel} from './preference-labels.mjs';
 import {readCurrentPersona,personaIdentity,syncPersonaProfile,filterRowsByPersona} from './persona-sync.mjs';
 import {normalizeSetupOutputTokens,MIN_SETUP_OUTPUT_TOKENS,MAX_SETUP_OUTPUT_TOKENS} from './setup-options.mjs';
 import {buildProfileSetupInput} from './profile-setup-input.mjs';
@@ -15,11 +15,13 @@ import {getRequestHeaders,saveSettingsDebounced} from '/script.js';
 import {extension_settings} from '/scripts/extensions.js';
 import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from './global-analysis-settings.mjs';
 import {mountExtensionLaunchers} from './menu-launcher.mjs';
+import {extractDrugClassesFromWorldInfo} from './worldinfo-drug-catalog.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
 let active=false, working=false, state=null, status='준비됨',panelOpen=false, tab='status', lastKey='';
 let timeSyncPreview=null;
+let worldInfoDrugReference={status:'loading',catalog:null,error:''};
 let sessionApiKey=''; // Never serialized or persisted. Cleared on page reload.
 let npcCandidates=[], npcScanChatId='', npcSearch='', npcReviewEntries=[], npcScanStats=null, npcPreviewId='', npcAiBatchOffset=0;
 const html=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -42,6 +44,30 @@ function eventSummaryKo(e){
  const kind=eventKindLabel(e.kind);
  if(e.kind==='time_advance'&&Number.isFinite(e.hours))return `${kind} · ${fmt(e.hours)}시간`;
  return e.person?`${person} · ${kind}`:kind;
+}
+
+// Informational reference from the JSON bundled with this extension. This does not
+// inspect SillyTavern's currently activated/imported World Info entries.
+async function loadBundledWorldInfoDrugReference(){
+ try{
+  const url=new URL('./worldinfo/ABO_Universal_WorldInfo_v3.4_EN.json',import.meta.url);
+  const response=await fetch(url);
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const catalog=extractDrugClassesFromWorldInfo(await response.json());
+  worldInfoDrugReference={status:'ready',catalog,error:''};
+ }catch(err){
+  worldInfoDrugReference={status:'error',catalog:null,error:String(err?.message||err)};
+ }
+ if(panelOpen&&tab==='settings')render();
+}
+function worldInfoDrugReferenceHtml(){
+ const ref=worldInfoDrugReference;
+ const count=ref.status==='ready'?` · ${ref.catalog.count}종`:'';
+ const headline=`동봉된 월드 인포 약물 종류${count}`;
+ if(ref.status==='loading')return `<details class="abop-drug-reference"><summary>${headline}</summary><p class="abop-muted">월드 인포 파일을 읽는 중입니다.</p></details>`;
+ if(ref.status==='error')return `<details class="abop-drug-reference"><summary>${headline}</summary><p class="abop-muted">월드 인포 약물 정보를 불러오지 못했습니다: ${html(ref.error)}</p></details>`;
+ const groups=ref.catalog.groups.map(group=>`<div class="abop-drug-group"><h4>${html(group.name)} <small>${html(group.source)}${group.disabled?' · 항목 비활성':''}</small></h4>${group.items.map(item=>`<div class="abop-drug-line"><b>${html(item.title)}</b><p>${html(item.description)}</p></div>`).join('')}</div>`).join('');
+ return `<details class="abop-drug-reference"><summary>${headline}</summary><p class="abop-muted">동봉된 월드 인포 v3.4에 명시된 약물 분류입니다. 별도 제품명은 정의되어 있지 않습니다.</p>${groups||'<p class="abop-muted">약물 분류를 찾을 수 없습니다.</p>'}<p class="abop-muted">일반 피임약은 확장의 계산 엔진에 존재하지만 월드 인포에서 독립된 약물 분류로 상세 정의되지는 않았습니다.</p><p class="abop-muted">이 목록은 참고용입니다. 현재 SillyTavern에 해당 월드 인포가 실제로 가져오기·활성화되었는지는 확인하지 않습니다. 목록을 열어도 복용 사건이나 상태는 변경되지 않습니다.</p></details>`;
 }
 
 function sharedAnalysisSettings(){
@@ -298,10 +324,15 @@ async function analyzeLatest({force=false}={}){
   const events=parseModelOutput(reply,src.userText,src.assistantText).map((e,i)=>({...e,id:eventIDFor(originKey,i),sceneId:e.sceneId||originKey,...(e.kind==='bond'?{allowMultipleAtCreation:m.config.asymmetricBond===true}:{})}));
   // A newly analyzed CHAR response without a scene snapshot must not leave a stale
   // earlier posture/activity visible as the current scene.
-  if(!events.some(e=>e.kind==='scene'&&e.person==='char'))events.push({
-   id:eventIDFor(originKey,events.length),kind:'scene_unverified',person:'char',
-   sceneId:originKey
-  });
+  // Each analyzed speaker's scene snapshot must have fresh evidence. In particular,
+  // a previous USER pose must not linger as the current scene when the new USER turn
+  // contains no supported scene event.
+  for(const role of ['char',...(src.userText.trim()?['user']:[])]){
+   if(!events.some(e=>e.kind==='scene'&&e.person===role))events.push({
+    id:eventIDFor(originKey,events.length),kind:'scene_unverified',person:role,
+    sceneId:originKey
+   });
+  }
   const existing=ledger[originKey]||{};
   if(existing.personaId&&existing.personaId!==originPersona){setStatus('이 응답은 이전 USER 페르소나의 기록입니다. 새 응답에서 다시 분석하세요.');return;}
   if(originTarget===MAIN_TARGET){
@@ -472,7 +503,6 @@ function cycleOverview(p,clock,seed,hideTruth=false){
  else if(f.menstruationStatus==='unknown')lines+='<p>다음 월경: 기준 시점 미확정</p>';
  else lines+='<p>다음 월경: 해당 없음</p>';
  lines+=fertility;
- if(m==='enabled'&&!f.paused)lines+=`<p class="abop-muted">본능 행동화 가능성: ${(instinctChance(p,f.phase)*100).toFixed(0)}% · 후보: ${html(allowedInstincts(p).map(instinctLabel).join(', '))}</p>`;
  if(m==='enabled')lines+=`<details><summary>주기 설정값</summary><p>간격: ${fmt(p.cycle.intervalHours/24)}일 · 전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일 · 회복: ${fmt(p.cycle.recoveryHours)}시간</p></details>`;
  return lines;
 }
@@ -548,6 +578,8 @@ function selectedSection(){
   <label class="abop-check"><input type="checkbox" data-config="pregnancyEnabled" ${m.config.pregnancyEnabled!==false?'checked':''}/> 임신 시뮬레이션 ON/OFF (채팅별)</label>
   <label class="abop-check"><input type="checkbox" data-config="asymmetricBond" ${m.config.asymmetricBond?'checked':''}/> 비대칭 각인 ON/OFF (OFF: 알파·오메가 상호 영향 / ON: 알파 복수 각인 허용, 오메가에게만 페로몬·분리 스트레스 적용)</label>
   <p class="abop-muted">OFF: 새 임신 확률·진행·RP 주입을 계산하지 않습니다. 사건 기록은 유지하므로 다시 ON이면 기존 사건까지 결정적 난수로 재계산됩니다. 이미 진행 중인 채팅에서는 먼저 백업을 권장합니다.</p>
+  <hr/><div class="abop-title">월드 인포 약물 안내</div>
+  ${worldInfoDrugReferenceHtml()}
   <hr/><div class="abop-title">기본 임신 확률 (%)</div>${Object.entries(m.config.rate).map(([k,v])=>`<label class="abop-number">${html(rateLabel(k))} <input type="number" min="0" max="100" step="1" data-rate="${k}" value="${fmt(v*100)}" /></label>`).join('')}<hr/><div class="abop-title">약물 시뮬레이션 확률 (%)</div>
   <p class="abop-muted">세계관 설정용 가상 확률입니다. 현실 의학에서 사용하는 실제 약물의 효과·복용법을 의미하지 않습니다.</p>
   ${[['oralContraceptiveEffectiveness','일반 피임약 유효 중 임신 위험 감소'],['emergencyContraceptiveReduction','72시간 이내 응급 피임 위험 감소'],['longSuppressantSuccess','장기 억제제 배란 억제 성공']].map(([key,label])=>`<label class="abop-number">${label} <input type="number" min="0" max="100" step="1" data-probability="${key}" value="${fmt((m.config[key]??DEFAULT_CONFIG[key])*100)}" /></label>`).join('')}
@@ -597,7 +629,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.33</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.35</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['scenes','장면','▣'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','scenes':'장면','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -863,6 +895,6 @@ function subscribe(){
  if(t.MESSAGE_RECEIVED)source.on(t.MESSAGE_RECEIVED,onMessage);
  if(t.GENERATION_STARTED)source.on(t.GENERATION_STARTED,updatePrompt);
 }
-function boot(){if(active)return;active=true;buildUI();subscribe();refresh();log('Loaded (no third-party dependencies)');}
+function boot(){if(active)return;active=true;buildUI();subscribe();refresh();void loadBundledWorldInfoDrugReference();log('Loaded (no third-party dependencies)');}
 // Module evaluation occurs after SillyTavern resolves its extension entrypoint.
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();

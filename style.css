@@ -220,3 +220,13 @@
 #abop-panel .abop-scene-details .abop-line{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline}
 #abop-panel .abop-scene-key{min-width:64px;color:var(--ab-muted);font-size:12px;font-weight:750}
 @media(max-width:380px){#abop-panel .abop-nav button{flex:0 0 58px;min-width:58px}}
+
+/* v0.3.35: read-only bundled World Info drug-class reference */
+#abop-panel .abop-drug-reference{border:1px solid var(--ab-soft-line);background:var(--ab-card);padding:10px 12px;margin-top:9px}
+#abop-panel .abop-drug-reference>summary{font-size:13px;color:var(--ab-heading)}
+#abop-panel .abop-drug-reference .abop-drug-group{border-top:1px dashed var(--ab-soft-line);margin:13px 0 0;padding:8px 0 0}
+#abop-panel .abop-drug-reference .abop-drug-group h4{margin:0 0 7px;color:var(--ab-mint);font-size:13px}
+#abop-panel .abop-drug-reference .abop-drug-group h4 small{font-size:10px;color:var(--ab-muted);font-weight:400}
+#abop-panel .abop-drug-reference .abop-drug-line{padding:6px 0;border-bottom:1px dotted var(--ab-soft-line)}
+#abop-panel .abop-drug-reference .abop-drug-line b{font-size:13px;color:var(--ab-text)}
+#abop-panel .abop-drug-reference .abop-drug-line p{font-size:12px;margin:3px 0 0;color:var(--ab-muted)}
