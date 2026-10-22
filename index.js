@@ -1,4 +1,5 @@
 import {recoverHistoryTime,applyHistorySync,syncedHistoryEventCount} from './time-sync.mjs';
+import {collectHistorySources,historySnapshot,buildHistoryCandidates,appendHistorySelections,countHistoryStateEvents,matchingRecordedEvents,eventIdentity} from './history-state.mjs';
 import {DEFAULT_CONFIG, VERSION,hash,uniqKey,sortedRecords,replay,inferExplicit,formatPrompt,cycleDisplay,cycleForecast,cycleMode,bondEffects,bondSeparationStress,effectivePheromoneResponse,pressureScore,clamp} from './core.mjs';
 import {ANALYZER_SYSTEM,parseModelOutput,buildAnalyzerUserPrompt} from './analyzer.mjs';
 import {PROFILE_SYSTEM,PROFILE_FIELDS,SetupJsonFormatError,normalizeSetupProposal,completeInitialIdentityProposal,alignInitialPhysiologyProposal,missingInitialSecondaryRoles,mergeSelectedPreferences,anatomyChoices,anatomyDefault} from './profile.mjs';
@@ -20,7 +21,7 @@ const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
 let active=false, working=false, state=null, status='준비됨',panelOpen=false, tab='status', lastKey='';
-let timeSyncPreview=null;
+let timeSyncPreview=null,historyStatePreview=null,historyScanCancelled=false;
 let worldInfoDrugReference={status:'loading',catalog:null,error:''};
 let sessionApiKey=''; // Never serialized or persisted. Cleared on page reload.
 let npcCandidates=[], npcScanChatId='', npcSearch='', npcReviewEntries=[], npcScanStats=null, npcPreviewId='', npcAiBatchOffset=0;
@@ -41,7 +42,7 @@ function displayAlertKo(message,hideTruth=false){
 }
 function eventSummaryKo(e){
  const person=personRoleLabel(e.person);
- const kind=eventKindLabel(e.kind);
+ const kind=e.kind==='vital_observation'?'신체·페로몬 상태 변화':eventKindLabel(e.kind);
  if(e.kind==='time_advance'&&Number.isFinite(e.hours))return `${kind} · ${fmt(e.hours)}시간`;
  return e.person?`${person} · ${kind}`:kind;
 }
@@ -67,7 +68,7 @@ function worldInfoDrugReferenceHtml(){
  if(ref.status==='loading')return `<details class="abop-drug-reference"><summary>${headline}</summary><p class="abop-muted">월드 인포 파일을 읽는 중입니다.</p></details>`;
  if(ref.status==='error')return `<details class="abop-drug-reference"><summary>${headline}</summary><p class="abop-muted">월드 인포 약물 정보를 불러오지 못했습니다: ${html(ref.error)}</p></details>`;
  const groups=ref.catalog.groups.map(group=>`<div class="abop-drug-group"><h4>${html(group.name)} <small>${html(group.source)}${group.disabled?' · 항목 비활성':''}</small></h4>${group.items.map(item=>`<div class="abop-drug-line"><b>${html(item.title)}</b><p>${html(item.description)}</p></div>`).join('')}</div>`).join('');
- return `<details class="abop-drug-reference"><summary>${headline}</summary><p class="abop-muted">동봉된 월드 인포 v3.4에 명시된 약물 분류입니다. 별도 제품명은 정의되어 있지 않습니다.</p>${groups||'<p class="abop-muted">약물 분류를 찾을 수 없습니다.</p>'}<p class="abop-muted">일반 피임약은 확장의 계산 엔진에 존재하지만 월드 인포에서 독립된 약물 분류로 상세 정의되지는 않았습니다.</p><p class="abop-muted">이 목록은 참고용입니다. 현재 SillyTavern에 해당 월드 인포가 실제로 가져오기·활성화되었는지는 확인하지 않습니다. 목록을 열어도 복용 사건이나 상태는 변경되지 않습니다.</p></details>`;
+ return `<details class="abop-drug-reference"><summary>${headline}</summary>${groups||'<p class="abop-muted">약물 분류를 찾을 수 없습니다.</p>'}</details>`;
 }
 
 function sharedAnalysisSettings(){
@@ -352,6 +353,71 @@ async function analyzeLatest({force=false}={}){
   await persist();setStatus(`분석 완료 · 확인된 사건 ${events.length}건`);refresh();
  }catch(e){console.error('[ABO Pixel] generation error',e);setStatus(`분석 실패: ${e.message||'모델/API 연결 확인'}`);}finally{working=false;render();}
 }
+/** An opt-in, never-auto-applied, chronological historical scan.
+ * All model responses remain in memory until an explicit preview confirmation. */
+function matchingHistoryExists(ledger,npcLedger,multi,item){
+ return [...matchingRecordedEvents(ledger[item.key],npcLedger[item.key],multi),
+ ...(item.parentKey!==item.key?matchingRecordedEvents(ledger[item.parentKey],npcLedger[item.parentKey],multi):[])].some(e=>eventIdentity(e)===item.identity);
+}
+async function previewHistoryState(){
+ if(working)return;
+ const m=meta();syncCanon();
+ if(!m?.config?.enabled)return setStatus('확장을 활성화한 뒤 재분석할 수 있습니다');
+ if(!currentNpcReady(m))return setStatus('먼저 CHAR 추적 NPC를 선택하세요');
+ const c=S(),target=selectedNpcId(m),personaId=m.userPersonaIdentity;
+ const chat=c.chat||[],sources=collectHistorySources(chat);
+ if(!sources.length)return setStatus('재분석할 기존 대화 메시지가 없습니다');
+ if(!window.confirm(`기존 메시지 ${sources.length}개를 순서대로 AI에 전송해 재분석합니다. 분석 요청마다 API 비용이 발생할 수 있습니다. 기존 기록은 이 단계에서 변경하지 않습니다. 시작할까요?`))return;
+ const chatId=c.chatId,fingerprint=historySnapshot(chat),canonFingerprint=JSON.stringify(effectiveCanon(m)),bondMode=m.config.asymmetricBond===true;
+ const existingShared=structuredClone(m.ledger||{}),existingNpc=structuredClone(target===MAIN_TARGET?{}:currentCharLedger(m));
+ let results={};
+ historyStatePreview=null;historyScanCancelled=false;
+ working=true;setStatus(`과거 기록 재분석 중 · 0/${sources.length}개`);render();
+ try{
+  const ec=effectiveCanon(m),multi=target!==MAIN_TARGET;
+  for(let i=0;i<sources.length;i++){
+   if(historyScanCancelled)throw new Error('사용자가 분석을 취소했습니다');
+   if(S().chatId!==chatId||historySnapshot(S().chat||[])!==fingerprint||meta(false)!==m||m.userPersonaIdentity!==personaId||selectedNpcId(m)!==target||JSON.stringify(effectiveCanon(m))!==canonFingerprint)throw new Error('채팅·메시지·페르소나·추적 대상이 변경되어 분석을 중단했습니다');
+   const src=sources[i];
+   try{
+    // Do not feed future messages into the historical state context.
+    const earlierChat=chat.slice(0,src.index);
+    const cand=buildHistoryCandidates(sources.slice(0,i),results,existingShared,existingNpc,multi,personaId);
+    const tempShared=structuredClone(existingShared),tempNpc=structuredClone(existingNpc);
+    appendHistorySelections({ledger:tempShared,npcLedger:tempNpc,multiNpc:multi,personaId,targetId:target,config:m.config,
+      candidates:cand.pending,selectedIds:new Set(cand.pending.map(item=>`${item.key}#${item.ordinal}`))});
+    const rows=multi?combineNpcRecords(earlierChat,tempShared,tempNpc,personaId):filterRowsByPersona(sortedRecords(earlierChat,tempShared),personaId);
+    const prior=replay(m.seed,ec,m.config||DEFAULT_CONFIG,rows,effectiveOverrides(m));
+    const existingState={clockHours:prior.clockHours,people:Object.fromEntries(Object.entries(prior.people).map(([id,person])=>[id,{name:person.name,sex:person.sex,secondary:person.secondary,phase:person.cycle.phase,pregnancy:person.pregnancy.status,condition:person.body.condition,pheromoneEmission:person.pheromone.emission}]))};
+    const prompt=buildAnalyzerUserPrompt({charName:ec.char.name,charAliases:ec.char.aliases||[],multiNpc:multi,
+      userName:ec.user.name,charCard:ec.char.card,userPersona:ec.user.card,
+      userText:src.userText,assistantText:src.assistantText,existingState});
+    const raw=await analysisRequest(ANALYZER_SYSTEM,prompt,2600);
+    // An invalid JSON reply is a failed scan, not a confirmed zero-event message.
+    const envelope=String(raw||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'');
+    const decoded=JSON.parse(envelope.slice(envelope.indexOf('{'),envelope.lastIndexOf('}')+1));
+    if(!Array.isArray(decoded?.events))throw new Error('모델이 events 배열을 반환하지 않았습니다');
+    const events=parseModelOutput(raw,src.userText,src.assistantText).map(e=>{
+     if(src.userKey&&e.evidence&&src.userText.includes(e.evidence)&&(e.person==='user'||e.kind==='time_advance'||!src.assistantText.includes(e.evidence)))
+      return {...e,__sourceKey:src.userKey,__sourceIndex:src.userIndex};
+     return e;
+    });
+    results[src.key]={events,capped:decoded.events.length>=12};
+   }catch(err){
+    results[src.key]={error:String(err?.message||err).slice(0,200)};
+    console.warn('[ABO Tracker] Historical message analysis failed',src.index+1,err);
+   }
+   setStatus(`과거 기록 재분석 중 · ${i+1}/${sources.length}개 · 취소 가능`);
+   if(i%3===2||i===sources.length-1)render();
+  }
+  if(historyScanCancelled)throw new Error('사용자가 분석을 취소했습니다');
+  if(S().chatId!==chatId||historySnapshot(S().chat||[])!==fingerprint||meta(false)!==m||m.userPersonaIdentity!==personaId||selectedNpcId(m)!==target||JSON.stringify(effectiveCanon(m))!==canonFingerprint)throw new Error('채팅·페르소나·추적 대상이 변경돼 분석 결과를 폐기했습니다');
+  const reviewed=buildHistoryCandidates(sources,results,existingShared,existingNpc,target!==MAIN_TARGET,personaId);
+  historyStatePreview={chatId,fingerprint,canonFingerprint,bondMode,personaId,target,reviewed,total:sources.length,capped:Object.values(results).filter(r=>r.capped).length,createdAt:new Date().toISOString()};
+  setStatus(`재분석 완료 · 신규 후보 ${reviewed.pending.length}건 / 기존 중복 ${reviewed.duplicates.length}건 / 실패 ${reviewed.errors.length}개 · 적용 전 검토`);
+ }catch(err){historyStatePreview=null;setStatus(`재분석 결과 미적용: ${err.message}`);}
+ finally{working=false;historyScanCancelled=false;render();}
+}
 async function initialProfileAnalyze(){
  const m=meta();syncCanon();if(!m||working)return;
  if(!currentNpcReady(m))return setStatus('먼저 CHAR 추적 NPC를 선택하세요');
@@ -420,6 +486,7 @@ function renderSetup(){
    const choices=f.key==='anatomy'?anatomyChoices(inferredSex,inferredABO):PROPOSAL_SELECT[f.key];
    const options=choices&&choices.some(([v])=>v===f.value)?choices:choices?[...choices,[f.value,'제안값: '+f.value]]:null;
    const edit=typeof f.value==='boolean'?`<select data-proposal-value="${role}" data-i="${i}">${choiceHTML([['true','있음'],['false','없음']],f.value)}</select>`:
+    typeof f.value==='number'?`<input type="number" min="0" max="100" step="1" data-proposal-value="${role}" data-i="${i}" value="${fmt(f.value)}" />`:
     options?`<select data-proposal-value="${role}" data-i="${i}">${choiceHTML(options,f.value)}</select>`:
     `<input type="text" data-proposal-value="${role}" data-i="${i}" value="${html(f.value)}" />`;
    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-proposal-check="${role}" data-i="${i}" ${checked?'checked':''} ${disabled?'disabled':''}/><span class="abop-sr-only">${html(f.label)} 적용</span></label>
@@ -506,6 +573,43 @@ function cycleOverview(p,clock,seed,hideTruth=false){
  if(m==='enabled')lines+=`<details><summary>주기 설정값</summary><p>간격: ${fmt(p.cycle.intervalHours/24)}일 · 전조: ${fmt(p.cycle.prodromeHours)}시간 · 활성: ${fmt(p.cycle.activeHours/24)}일 · 회복: ${fmt(p.cycle.recoveryHours)}시간</p></details>`;
  return lines;
 }
+function projectedHistoryStateHtml(m,selectedIds){
+ try{
+  const preview=historyStatePreview;
+  if(!preview||!state)return '<p class="abop-muted">예상 상태를 계산할 수 없습니다.</p>';
+  const target=selectedNpcId(m),multi=target!==MAIN_TARGET;
+  const shared=structuredClone(m.ledger||{}),npc=multi?structuredClone(currentCharLedger(m)):{};
+  const selected=preview.reviewed.pending.filter(x=>selectedIds.has(`${x.key}#${x.ordinal}`));
+  const count=appendHistorySelections({ledger:shared,npcLedger:npc,multiNpc:multi,personaId:m.userPersonaIdentity,
+   targetId:target,config:m.config,candidates:selected,selectedIds});
+  const chat=S().chat||[],rows=multi?combineNpcRecords(chat,shared,npc,m.userPersonaIdentity):filterRowsByPersona(sortedRecords(chat,shared),m.userPersonaIdentity);
+  const next=replay(m.seed,effectiveCanon(m),m.config||DEFAULT_CONFIG,rows,effectiveOverrides(m));
+  const parts=Object.entries(state.people).map(([id,person])=>{
+   const after=next.people[id];if(!after)return '';
+   return `${id.toUpperCase()} 컨디션 ${fmt(person.body.condition)} → ${fmt(after.body.condition)}, 페로몬 ${fmt(person.pheromone.emission)} → ${fmt(after.pheromone.emission)}`;
+  });
+  return `<p class="abop-muted">선택한 신규 사건 ${count}건 적용 시 예상: 서사 시간 ${fmt(state.clockHours)} → ${fmt(next.clockHours)}시간</p><p class="abop-muted">${parts.map(html).join('<br>')}</p>`;
+ }catch(e){return `<p class="abop-muted">예상 수치 계산 실패: ${html(e.message)}</p>`;}
+}
+function renderHistoryStatePreview(m){
+ const saved=m.historyStateReviewInfo;
+ const last=saved?`<p class="abop-muted">마지막 재분석 적용: ${html(saved.appliedAt||'알 수 없음')} · ${Number(saved.count)||0}건</p>`:'';
+ const p=historyStatePreview;
+ if(!p||p.chatId!==S().chatId||p.target!==selectedNpcId(m)||p.personaId!==m.userPersonaIdentity)return last;
+ const {pending,duplicates,errors}=p.reviewed,hideTruth=m.config.hideTruth===true;
+ const label=e=>`${e.person?`${personRoleLabel(e.person)} · `:''}${e.kind==='vital_observation'?'신체·페로몬 변화':eventKindLabel(e.kind)}${e.kind==='time_advance'&&Number.isFinite(e.hours)?` · +${fmt(e.hours)}시간`:''}`;
+ const concealed=e=>hideTruth&&['exposure','pregnancy_reveal','pregnancy_end','delivery'].includes(e.kind);
+ return `<section class="abop-frame"><header>기존 채팅 상태 재분석 · 미리보기</header>
+ <p>검색한 메시지 ${p.total}개 · 신규 후보 ${pending.length}건 · 기존 기록 중복 ${duplicates.length}건 · 분석 실패 ${errors.length}개 · 이전 재분석 기록 ${countHistoryStateEvents(m.ledger,selectedNpcId(m)===MAIN_TARGET?{}:currentCharLedger(m))}건</p>
+ ${p.capped?`<p class="abop-muted">일부 메시지 ${p.capped}개에서 분석기 출력 최대 12건에 도달했습니다. 모든 사건이 추출됐다고 보장할 수 없습니다.</p>`:''}
+ <p class="abop-muted">기본값은 신규 후보만 선택됩니다. 시간 동기화·수동 기록·기존 사건은 삭제하거나 덮어쓰지 않습니다. 원문에 명시되지 않은 시간을 턴 수로 계산하지 않습니다.</p>
+ <div id="abop-history-projection">${projectedHistoryStateHtml(m,new Set(pending.map(x=>`${x.key}#${x.ordinal}`)))}</div>
+ ${pending.length?`<div class="abop-sync-results">${pending.map(item=>`<label class="abop-line"><input type="checkbox" data-history-state="${html(`${item.key}#${item.ordinal}`)}" checked> 메시지 ${item.index+1} · ${html(concealed(item.event)?'비공개 상태 사건':label(item.event))} — ${html(concealed(item.event)?'설정에 따라 근거 숨김':(item.event.evidence||'근거 없음').slice(0,220))}</label>`).join('')}</div>`:'<p>적용할 신규 후보가 없습니다.</p>'}
+ ${duplicates.length?`<p class="abop-muted">이미 기록된 사건 ${duplicates.length}건은 중복 적용에서 제외했습니다.</p>`:''}
+ ${errors.slice(0,12).map(x=>`<p class="abop-muted">분석 제외 · 메시지 ${x.index+1}: ${html(x.message)}</p>`).join('')}
+ ${errors.length>12?`<p class="abop-muted">그 외 분석 실패 ${errors.length-12}개</p>`:''}
+ <div class="abop-actions"><button data-action="applyHistoryState" ${pending.length?'':'disabled'}>선택한 사건만 적용</button><button data-action="cancelHistoryState">결과 폐기</button></div></section>${last}`;
+}
 function renderTimeSyncPreview(m){
  const saved=m.timeSyncInfo;
  const note=saved?`<p class="abop-muted">마지막 적용: ${html(saved.appliedAt||'알 수 없음')} · ${Number(saved.count)||0}건</p>`:'';
@@ -541,6 +645,9 @@ function selectedSection(){
   <div class="abop-actions"><button data-action="previewTimeSync" ${working?'disabled':''}>기존 채팅 시간 동기화</button></div>
   <p class="abop-muted">수동 실행 · 숫자형/자연어 시간 경과 및 주기 시작 기록 검색 · 불명확한 시간은 적용 제외 · 적용 전 미리보기</p>
   ${renderTimeSyncPreview(m)}
+  <div class="abop-actions"><button data-action="previewHistoryState" ${working?'disabled':''}>기존 채팅 상태 재분석</button>${working?'<button data-action="cancelHistoryScan">재분석 중단</button>':''}</div>
+  <p class="abop-muted">수동 실행 · 과거 메시지를 오래된 순서로 AI 분석(추가 API 비용 가능) · 중복 제거 · 승인 전에는 현재 상태에 적용하지 않음</p>
+  ${renderHistoryStatePreview(m)}
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>displayAlertKo(x,m.config.hideTruth===true)).filter(Boolean).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
   <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">${Math.floor(e.at/24)}일 차 · ${html(eventSummaryKo(e))}</div>`).join('')||'기록 없음'}</details></section>`;
@@ -597,8 +704,9 @@ function personCard(id,p,m){
  <label>신체 유형<select data-person="${id}" data-field="anatomy">${options(p.anatomy||anatomyDefault(p.sex,p.secondary),anatomyChoices(p.sex,p.secondary))}</select></label>
  <label>러트/히트 상태<select data-person="${id}" data-field="cycleMode">${options(cycleMode(p),[['enabled','사용 · 현재 주기 계산'],['disabled','사용 안 함 · 추적 중지'],['absent','생리적으로 없음'],['unset','미설정 · 판단 보류']])}</select></label></div>
  <div class="abop-savebar"><small>항목 변경 시 자동 저장됩니다. 자동 배정된 ABO도 확정할 수 있습니다.</small><button type="button" data-action="saveABO" data-role="${id}">ABO 선택 저장</button></div>
- <div class="abop-meterlabel">컨디션 <b>${fmt(p.body.condition)}</b></div><div class="abop-meter"><i style="width:${clamp(p.body.condition,0,100)}%"></i></div>
- <div class="abop-meterlabel">페로몬 발산 <b>${fmt(p.pheromone.emission)}</b></div><div class="abop-meter mint"><i style="width:${clamp(p.pheromone.emission,0,100)}%"></i></div>
+ <details class="abop-advanced"><summary>기초 상태값 · 직접 수정</summary><p class="abop-muted">현재 수치는 기초값에 주기·복용·부작용·명시된 서사 상태를 반영한 가상 지표입니다. 이전 버전의 일괄 70/50은 자동으로 고정하지 않습니다.</p><div class="abop-fields"><label>기초 컨디션 (0~100)<input type="number" min="0" max="100" step="1" data-person="${id}" data-field="baseCondition" value="${fmt(p.vitalBaseline.condition)}" /></label><label>기초 페로몬 (0~100)<input type="number" min="0" max="100" step="1" data-person="${id}" data-field="basePheromone" value="${fmt(p.vitalBaseline.emission)}" /></label></div><p class="abop-muted">기초 산정: ${html(p.vitalBaseline.source||'개별 기초 추정')}</p></details>
+ <div class="abop-meterlabel">현재 컨디션 <b>${fmt(p.body.condition)}</b></div><div class="abop-meter"><i style="width:${clamp(p.body.condition,0,100)}%"></i></div>
+ <div class="abop-meterlabel">현재 페로몬 발산 <b>${fmt(p.pheromone.emission)}</b></div><div class="abop-meter mint"><i style="width:${clamp(p.pheromone.emission,0,100)}%"></i></div>
  <div class="abop-tagrow"><span>${p.cycle.enabled?html(cyclePhaseLabel(p.cycle.phase)):html(cycleModeLabel(cycleMode(p)))}</span><span>${html(({alpha:'알파',beta:'베타',omega:'오메가'})[p.secondary]||'미설정')}</span><span>${p.bondWith?'결합 ♥':'미결합'}</span></div>
  <div class="abop-muted">각인 상대: ${html((p.bondPartners||[]).map(pid=>state.people[pid]?.name||pid).join(', ')||'없음')} · ${html(cycleModeLabel(cycleMode(p)))}</div>
  ${bondEffects(state,id)?`<div class="abop-muted">각인 페로몬: 상대 ${bondEffects(state,id).partnerScentSensitivity>=0?'+':''}${bondEffects(state,id).partnerScentSensitivity} · 타인 ${bondEffects(state,id).otherScentSensitivity} · 불쾌감 +${bondEffects(state,id).otherScentDiscomfort} · 실제 민감도(상대/타인) ${effectivePheromoneResponse(state,id).partnerSensitivity}/${effectivePheromoneResponse(state,id).otherSensitivity} · 분리 스트레스 (기본/현재 히트·러트) ${bondSeparationStress(state,id,{separated:true}).total}</div>`:''}
@@ -629,7 +737,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.35</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.37</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['scenes','장면','▣'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','scenes':'장면','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -675,6 +783,11 @@ function buildUI(){
 }
 async function handlePanelChange(e){
  const t=e.target,m=meta();if(!m)return;
+ if(t.hasAttribute('data-history-state')){
+  const node=el('abop-history-projection');
+  if(node)node.innerHTML=projectedHistoryStateHtml(m,new Set([...el('abop-panel').querySelectorAll('[data-history-state]:checked')].map(x=>x.dataset.historyState)));
+  return;
+ }
  if(t.hasAttribute('data-npc-search')){npcSearch=t.value;render();return;}
  if(t.id==='abop-npc-select'){npcPreviewId=t.value;render();return;}
  if(t.hasAttribute('data-theme-choice')){m.config.uiTheme=t.value;
@@ -682,7 +795,8 @@ async function handlePanelChange(e){
  }else if(t.dataset.proposalValue){
   const role=t.dataset.proposalValue,rec=m.initialProposal?.roles?.[role],f=rec?.fields?.[Number(t.dataset.i)];
   if(f){
-   f.value=typeof f.value==='boolean'?t.value==='true':t.value;
+   if(typeof f.value==='number'){const n=Number(t.value);if(!Number.isFinite(n)||t.value.trim()===''||n<0||n>100)return setStatus('기초 수치는 0~100으로 입력하세요');f.value=Math.round(n);}
+   else f.value=typeof f.value==='boolean'?t.value==='true':t.value;
    if(['sex','secondary','anatomy'].includes(f.key)){
     const source=effectiveCanon(m)?.[role]||{},manual=effectiveOverrides(m)?.[role]||{};
     const sex=(['male','female','nonbinary'].includes(manual.sex)?manual.sex:null)||rec.fields.find(x=>x.key==='sex')?.value||source.sex||'unknown';
@@ -711,7 +825,10 @@ async function handlePanelChange(e){
  }else if(t.dataset.prefAttitudeCheck){const d=m.initialProposal?.roles?.[t.dataset.prefAttitudeCheck];if(d)d.useAttitude=t.checked;
  }else if(t.dataset.person){
   const id=t.dataset.person,field=t.dataset.field;
-  const value=field==='cycleEnabled'?t.value==='true':t.value;
+  let value=field==='cycleEnabled'?t.value==='true':t.value;
+  if(['baseCondition','basePheromone'].includes(field)){
+   const n=Number(t.value);if(!Number.isFinite(n)||t.value.trim()===''||n<0||n>100)return setStatus('기초 수치는 0~100으로 입력하세요');value=Math.round(n);
+  }
   currentRoleOverrides(m,id)[field]=value;
  }else if(t.dataset.config){m.config[t.dataset.config]=!!t.checked;
  }else if(t.hasAttribute('data-connection')){
@@ -824,6 +941,31 @@ async function handlePanelClick(e){
   catch(err){console.warn('[ABO Pixel] connection test failed',err);setStatus(`연결 실패: ${readableProfileError(err)} | ${profileErrorHint(err)}`);}
   finally{working=false;render();}return;
  }
+ if(act==='cancelHistoryScan'){historyScanCancelled=true;setStatus('현재 AI 요청 완료 후 재분석을 중단합니다. 기존 데이터는 변경하지 않습니다.');return;}
+ if(act==='previewHistoryState'){await previewHistoryState();return;}
+ if(act==='cancelHistoryState'){historyStatePreview=null;render();setStatus('재분석 결과를 폐기했습니다. 기존 데이터 변경 없음');return;}
+ if(act==='applyHistoryState'){
+  if(working)return;
+  const m=meta(),p=historyStatePreview,c=S();
+  if(!m||!p||p.chatId!==c.chatId||p.personaId!==m.userPersonaIdentity||p.target!==selectedNpcId(m)||p.fingerprint!==historySnapshot(c.chat||[])||p.canonFingerprint!==JSON.stringify(effectiveCanon(m))||p.bondMode!==(m.config.asymmetricBond===true))return setStatus('채팅·페르소나·각인 설정이 변경되어 재분석 미리보기를 다시 만들어야 합니다');
+  const selectedIds=new Set([...el('abop-panel').querySelectorAll('[data-history-state]:checked')].map(x=>x.dataset.historyState));
+  if(!selectedIds.size)return setStatus('적용할 사건을 선택하세요');
+  const target=selectedNpcId(m),sharedLedger=m.ledger||{},npcLedger=target===MAIN_TARGET?{}:currentCharLedger(m);
+  // Guard even if the preview has become stale due to non-chat metadata edits.
+  const toApply=p.reviewed.pending.filter(x=>selectedIds.has(`${x.key}#${x.ordinal}`)&&!matchingHistoryExists(sharedLedger,npcLedger,target!==MAIN_TARGET,x));
+  if(!toApply.length)return setStatus('신규로 적용할 사건이 없습니다');
+  if(!window.confirm(`선택한 신규 사건 ${toApply.length}건을 현재 채팅 기록에 추가할까요? 기존 사건·수동 기록은 유지합니다.${p.reviewed.errors.length?` 분석 실패 ${p.reviewed.errors.length}개 메시지는 제외됩니다.`:''}`))return;
+  const backupShared=structuredClone(m.ledger||{}),backupNpc=target===MAIN_TARGET?null:structuredClone(npcLedger),prior=m.historyStateReviewInfo;
+  try{
+   const added=appendHistorySelections({ledger:m.ledger,npcLedger,multiNpc:target!==MAIN_TARGET,
+    personaId:m.userPersonaIdentity,targetId:target,config:m.config,candidates:toApply,
+    selectedIds:new Set(toApply.map(x=>`${x.key}#${x.ordinal}`))});
+   m.historyStateReviewInfo={appliedAt:new Date().toISOString(),count:added,scanned:p.total,failed:p.reviewed.errors.length,chatId:c.chatId,target};
+   if(!await persist())throw new Error('메타데이터 저장 실패');
+   historyStatePreview=null;refresh();setStatus(`기존 채팅 상태 재분석 · 신규 사건 ${added}건 적용 완료`);
+  }catch(err){m.ledger=backupShared;if(backupNpc)npcTracking(m).ledgers[target]=backupNpc;m.historyStateReviewInfo=prior;refresh();setStatus(`재분석 적용 실패: ${err.message}`);}
+  return;
+ }
  if(act==='previewTimeSync'){
   const c=S();if(!c?.chatId)return setStatus('현재 채팅이 없습니다');
   timeSyncPreview={chatId:c.chatId,result:recoverHistoryTime(c.chat||[])};
@@ -836,15 +978,24 @@ async function handlePanelClick(e){
   const selected=new Set([...el('abop-panel').querySelectorAll('input[data-sync-index]:checked')].map(t=>Number(t.dataset.syncIndex)));
   const matches=p.result.matches.filter((_,i)=>selected.has(i));
   if(!matches.length)return setStatus('적용할 단서를 선택하세요');
+  // Historical state reanalysis may already have restored this event. Do not
+  // count the same message's time skip (or cycle start) a second time.
+  const uniqueMatches=matches.filter(x=>{
+   const next=(S().chat||[])[x.index+1];
+   const adjacentBotKey=next&&!next.is_user&&!next.is_system?uniqKey(next,x.index+1):null;
+   const recorded=[...(m.ledger?.[x.key]?.events||[]),...(adjacentBotKey?(m.ledger?.[adjacentBotKey]?.events||[]):[])];
+   return !recorded.some(e=>!String(e.id||'').startsWith('history-time-sync:')&&eventIdentity(e)===eventIdentity(x));
+  });
+  if(!uniqueMatches.length)return setStatus('선택한 단서는 이미 다른 사건 기록에 반영되어 있습니다. 중복 적용하지 않았습니다.');
   const existing=Object.values(m.ledger||{}).flatMap(r=>r?.events||[]).filter(e=>e.kind==='time_advance'&&!String(e.id).startsWith('history-time-sync:'));
   if(existing.length&&!window.confirm(`이미 시간 진행 사건 ${existing.length}건이 기록되어 있습니다. 중복 시간 산정 가능성이 있습니다. 계속할까요?`))return;
-  if(!window.confirm(`검토한 ${matches.length}개 기록을 적용하고 이전 동기화 기록은 대체할까요?`))return;
+  if(!window.confirm(`검토한 ${uniqueMatches.length}개 기록을 적용하고 이전 동기화 기록은 대체할까요?${uniqueMatches.length!==matches.length?` 중복 ${matches.length-uniqueMatches.length}건은 제외됩니다.`:''}`))return;
   const backup=structuredClone(m.ledger||{}),previous=m.timeSyncInfo;
   try{
-   applyHistorySync(m.ledger,{matches},m.userPersonaIdentity);
-   m.timeSyncInfo={count:matches.length,appliedAt:new Date().toISOString(),chatId:c.chatId};
+   applyHistorySync(m.ledger,{matches:uniqueMatches},m.userPersonaIdentity);
+   m.timeSyncInfo={count:uniqueMatches.length,appliedAt:new Date().toISOString(),chatId:c.chatId};
    if(!await persist())throw new Error('메타데이터 저장 실패');
-   timeSyncPreview=null;refresh();setStatus(`기존 채팅 시간 동기화 ${matches.length}건 적용 완료`);
+   timeSyncPreview=null;refresh();setStatus(`기존 채팅 시간 동기화 ${uniqueMatches.length}건 적용 완료`);
   }catch(err){m.ledger=backup;m.timeSyncInfo=previous;refresh();setStatus(`동기화 실패: ${err.message}`);}
   return;
  }

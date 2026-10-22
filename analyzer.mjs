@@ -1,5 +1,5 @@
 /* The classifier is intentionally read-only. All random decisions occur in core.mjs. */
-const ALLOWED=['time_advance','heat_start','rut_start','ovulation','bond','bond_loss','medication','exposure','pregnancy_reveal','delivery','pregnancy_end','preference','scene'];
+const ALLOWED=['time_advance','heat_start','rut_start','ovulation','bond','bond_loss','medication','exposure','pregnancy_reveal','delivery','pregnancy_end','preference','scene','vital_observation'];
 const DRUGS=['oral_suppressant','long_suppressant','emergency_suppressant','scent_blocker','symptom_inducer','cycle_inducer','unlicensed_mixture','emergency_contraceptive','oral_contraceptive'];
 const validPersonId=id=>['char','user'].includes(id)||/^npc:[a-z0-9_-]{2,48}$/i.test(String(id||''));
 const PREF_LEVELS=['latent','liked','strongly_liked','disliked','restricted'];
@@ -33,6 +33,7 @@ Event shapes:
 - {"kind":"bond_loss","person":"char"|"user","partner":"char"|"user","cause":"surgery"|"drug_adverse"|"death","evidence":"..."} ONLY for completed surgical removal, documented medication adverse loss, or death; never infer from ordinary separation.
 - {"kind":"pregnancy_reveal","person":"char"|"user","knower":"char"|"user","level":"suspected"|"confirmed","evidence":"..."}. Person is gestator; knower is one of the people.
 - {"kind":"delivery"|"pregnancy_end","person":"char"|"user","evidence":"..."} for a story-confirmed event.
+- {"kind":"vital_observation","person":"char"|"user","condition":"exhausted"|"tired"|"strained"|"neutral"|"rested"|"energized","emission":"surge"|"strong"|"neutral"|"faint"|"suppressed","evidence":"..."}. Only when the CURRENT message establishes actual present fatigue, condition recovery, or the tracked person's OWN pheromone emission changes. Either condition or emission may be omitted; do NOT invent missing evidence or score. For USER, USER text ONLY. Do not infer physical condition from personality; partner's scent is not one's own emitted scent.
 - {"kind":"preference","person":"char"|"user","preference":"concise snake_case tag","level":"${PREF_LEVELS.join('|')}","direct":boolean,"sceneId":"optional unique scene label","evidence":"..."}. Direct only for explicit statement; observations must recur across 2 different scenes before confirmation. Do not infer user preference from narrator prose.
 - {"kind":"scene","person":"char"|"user","posture":"...","contact":"...","vocal":"...","speech":"...","play":[],"completed":boolean,"evidence":"..."}. Capture the CURRENT observable posture, contact, and activity whenever the latest narrative establishes them, including nonsexual and conversational scenes. Use the latest physical position, not an earlier sexual pose or a preference. Write posture, contact, vocal, and play descriptions in short natural KOREAN, even when source narration is in English; retain named people and other proper nouns. For speech preserve the quoted original Korean/English utterance verbatim and never invent or translate a line as if actually spoken. The scene is a REPLACEMENT SNAPSHOT, not a partial merge: use empty strings and [] for fields not currently supported. Only record actual present contact; earlier kisses and imagined bites are not current contact. Use "completed":true ONLY when the ongoing scene explicitly ends. Do not carry over on_back or penetration without fresh evidence. If no scene facts are available, emit no scene event; the tracker will mark earlier data as unverified. Never invent user actions.
 Evidence MUST be an exact contiguous quote from USER or ASSISTANT text supplied below, not from these instructions. Minimum 4 visible characters. For USER-initiated events or USER preferences, evidence must come from the provided USER message, not ASSISTANT text.
@@ -55,12 +56,13 @@ export function parseModelOutput(raw,userText='',assistantText=''){
   // action (including a marking/bond by USER).
   // USER preferences/actions cannot be fabricated by assistant narration.
   if(e.kind==='preference'&&e.person==='user'&&!fromUser)continue;
+  if(e.kind==='vital_observation'&&e.person==='user'&&!fromUser)continue;
   if(e.kind==='scene'&&e.person==='user'&&!fromUser)continue;
   if(e.kind==='bond'&&e.actor==='user'&&!fromUser)continue;
   if(e.kind==='pregnancy_reveal'&&e.knower==='user'&&!fromUser)continue;
   if(['medication','heat_start','rut_start','ovulation','bond','bond_loss','delivery','pregnancy_end'].includes(e.kind)&&e.person==='user'&&!fromUser)continue;
   if(['time_advance'].includes(e.kind)&&(!Number.isFinite(e.hours)||e.hours<0||e.hours>8760))continue;
-  if(['heat_start','rut_start','ovulation','medication','pregnancy_reveal','delivery','pregnancy_end','preference','scene'].includes(e.kind)&&!['char','user'].includes(e.person))continue;
+  if(['heat_start','rut_start','ovulation','medication','pregnancy_reveal','delivery','pregnancy_end','preference','scene','vital_observation'].includes(e.kind)&&!['char','user'].includes(e.person))continue;
   if(e.kind==='medication'&&(!DRUGS.includes(e.drug)||!['normal','misuse','unlicensed'].includes(e.use_mode)))continue;
   if(e.kind==='exposure'){
    if(!['char','user'].includes(e.gestator)||!['char','user'].includes(e.donor)||e.gestator===e.donor)continue;
@@ -68,6 +70,7 @@ export function parseModelOutput(raw,userText='',assistantText=''){
    // Disallow ambiguous single-word sexual-event evidence.
    if(e.evidence.length<12)continue;
   }
+  if(e.kind==='vital_observation'&&!(['exhausted','tired','strained','neutral','rested','energized'].includes(e.condition)||['surge','strong','neutral','faint','suppressed'].includes(e.emission)))continue;
   if(e.kind==='preference'&&(!PREF_LEVELS.includes(e.level)||typeof e.preference!=='string'||!/^[-_a-z0-9]{2,80}$/i.test(e.preference)))continue;
   if(e.kind==='bond'&&(!validPersonId(e.actor)||!validPersonId(e.target)||e.actor===e.target||e.biteLocation!=='pheromone_nape'||e.biteConfirmed!==true))continue;
   if(e.kind==='bond'){

@@ -1,5 +1,6 @@
 /* ABO Pixel Tracker · standalone pure state engine. No third-party extension code. */
 import {anatomyDefault} from './profile.mjs';
+import {initialVitalBaseline,recalculateVitals,validVitalNumber,CONDITION_OBSERVATIONS,PHEROMONE_OBSERVATIONS} from './vitals.mjs';
 export const VERSION = 2;
 export const PHASE_RATES = Object.freeze({ quiet: .10, prodrome: .40, active: .75, recovery: .35 });
 export const INSTINCTS = Object.freeze({
@@ -64,6 +65,7 @@ export function person(id,name,seed,canon={}){
  const secondary=normalizeABO(canon.secondary)||'unknown';
  const abo=secondary==='unknown'?['alpha','beta','omega'][pickInt(seed,`abo:${id}`,0,2)]:secondary;
  const omegaMale=sex==='male'&&abo==='omega';
+ const vitalBaseline=initialVitalBaseline(canon,abo,name);
  const interval=abo==='omega'?pickInt(seed,`${id}:interval`,20,35):pickInt(seed,`${id}:interval`,30,90);
  const prodrome=abo==='omega'?pickInt(seed,`${id}:prodrome`,6,48):pickInt(seed,`${id}:prodrome`,6,24);
  const active=abo==='omega'?pickInt(seed,`${id}:active`,3,7)*24:pickInt(seed,`${id}:active`,1,3)*24;
@@ -75,8 +77,10 @@ export function person(id,name,seed,canon={}){
   cycle:{enabled:abo!=='beta',mode:abo==='beta'?'absent':'enabled',intervalHours:interval*24,prodromeHours:prodrome,activeHours:active,recoveryHours:recovery,anchorHour:interval*24, phase:'quiet',ovulationHour:null},
   menstruation:{enabled:omegaMale||sex==='female',days:pickInt(seed,`${id}:menses`,3,7)},
   fertile:{gestate:(abo==='omega'||sex==='female'&&['alpha','beta'].includes(abo)),impregnate:abo==='alpha'||(sex==='male'&&abo==='beta')},
-  body:{condition:70,fatigue:20,desire:25,sensitivity:35,emission:40,stress:20,resistance:50,instinct:50},
-  pheromone:{emission:50,sensitivity:50,control:50,pressure:50},
+  vitalBaseline:{condition:vitalBaseline.condition,emission:vitalBaseline.emission,source:vitalBaseline.source,reasons:vitalBaseline.reasons},
+  vitalObservation:null,
+  body:{condition:vitalBaseline.condition,fatigue:20,desire:25,sensitivity:35,emission:vitalBaseline.emission,stress:20,resistance:50,instinct:50},
+  pheromone:{emission:vitalBaseline.emission,sensitivity:50,control:50,pressure:50},
   medication:[],tolerance:{},adverse:[], preferences:canon.preferences?structuredClone(canon.preferences):{confirmed:[],latent:[],attitude:'curious'},
   awareness:{pregnancy:'unaware'},bondWith:null,bondPartners:[],permanentMark:null,
   pregnancy:{status:'none',conceivedAt:null,implantAt:null,dueAt:null,deliveryAt:null},
@@ -309,6 +313,8 @@ function updateCycles(state){
   if(p.pregnancy.status==='postpartum'&&state.clockHours>=p.cycle.anchorHour){p.pregnancy.status='ended';}
   if(p.pregnancy.status.startsWith('pregnant')&&Number.isFinite(p.pregnancy.dueAt)&&state.clockHours>=p.pregnancy.dueAt){p.pregnancy.status='due';}
  }
+ // Independent of the pregnancy toggle; refresh both protagonists and registered NPCs.
+ for(const p of Object.values(state.people))recalculateVitals(p,state.clockHours);
 }
 function updateWindow(state,gestator,ovulation){
  if(state.config.pregnancyEnabled===false)return;
@@ -448,6 +454,14 @@ export function applyEvent(state,input){
   }break;
  }
  case 'pregnancy_end':if(p&&state.config.pregnancyEnabled!==false){p.pregnancy.status='ended';p.cycle.anchorHour=state.clockHours+pickInt(state.seed,`recover:${e.id}`,28,42)*24;}break;
+ case 'vital_observation':if(p){
+   const cond=Object.hasOwn(CONDITION_OBSERVATIONS,e.condition)?e.condition:null;
+   const pher=Object.hasOwn(PHEROMONE_OBSERVATIONS,e.emission)?e.emission:null;
+   if(cond!==null||pher!==null){
+    p.vitalObservation={at:state.clockHours,condition:cond,emission:pher};
+   }
+   break;
+ }
  case 'preference':if(p)applyPreference(p,e);break;
  case 'scene':if(p){
    // A scene observation is a complete snapshot, never a merge with an old pose.
@@ -491,7 +505,16 @@ export function replay(seed,canon,config,rows,overrides={}){
    else if(k==='gestate')p.fertile.gestate=!!v;
    else if(k==='impregnate')p.fertile.impregnate=!!v;
    else if(k==='menstruationEnabled')p.menstruation.enabled=!!v;
+   else if(k==='baseCondition'&&validVitalNumber(v)){p.vitalBaseline.condition=Math.round(v);p.vitalBaseline.source='사용자·프로필 설정';}
+   else if(k==='basePheromone'&&validVitalNumber(v)){p.vitalBaseline.emission=Math.round(v);p.vitalBaseline.source='사용자·프로필 설정';}
   }
+  // An older provisional ABO roll must not determine baseline emission after
+  // a user selects another ABO category. Recalculate against the final identity.
+  const rebased=initialVitalBaseline(canon[who]||{},p.secondary,p.name);
+  p.vitalBaseline={...rebased,
+   condition:validVitalNumber(changes?.baseCondition)?Math.round(changes.baseCondition):rebased.condition,
+   emission:validVitalNumber(changes?.basePheromone)?Math.round(changes.basePheromone):rebased.emission,
+   source:validVitalNumber(changes?.baseCondition)||validVitalNumber(changes?.basePheromone)?'사용자·프로필 설정':rebased.source};
   if(!Object.hasOwn(changes,'gestate'))p.fertile.gestate=p.secondary==='omega'||p.sex==='female'&&['alpha','beta'].includes(p.secondary);
   if(!Object.hasOwn(changes,'impregnate'))p.fertile.impregnate=p.secondary==='alpha'||p.sex==='male'&&p.secondary==='beta';
   if(!Object.hasOwn(changes,'menstruationEnabled'))p.menstruation.enabled=p.secondary==='omega'||p.sex==='female';
@@ -510,7 +533,7 @@ export function formatPrompt(s,hideTruth=false){
  for(const [id,p] of Object.entries(s.people)){
   const cycle=cycleDisplay(p);
   const bondData=bondEffects(s,id);if(bondData)out.push(`${id.toUpperCase()} bond effects: partners=${bondData.partners.join(',')}; active=${bondData.active}; partner pheromone sensitivity ${bondData.partnerScentSensitivity>0?'+':''}${bondData.partnerScentSensitivity}; others sensitivity ${bondData.otherScentSensitivity}; others discomfort +${bondData.otherScentDiscomfort}; cycle separation stress +${bondData.heatSeparationStress} (max once if heat or rut is active), baseline separated stress +${s.config.bondBaseSeparationStress??10}. Asymmetric bond mode=${s.config.asymmetricBond?'ON (Omega effects only)':'OFF (both partners affected)'}.`);
-  out.push(`${id.toUpperCase()} ${p.name}: sex=${p.sex}; ABO=${p.secondary}; anatomy=${p.anatomy||'not specified'}; cycle=${cycleMode(p)} (${cycle.enabled?cycle.phase:'no active cycle'}); menses=${p.menstruation.phase}; bond=${(p.bondPartners||[]).join(',')||'none'}; symptoms: condition=${p.body.condition}, sensitivity=${p.body.sensitivity}, stress=${p.body.stress}; recent meds=${p.medication.filter(m=>m.until>=s.clockHours).map(m=>m.drug).join(',')||'none'}.`);
+  out.push(`${id.toUpperCase()} ${p.name}: sex=${p.sex}; ABO=${p.secondary}; anatomy=${p.anatomy||'not specified'}; cycle=${cycleMode(p)} (${cycle.enabled?cycle.phase:'no active cycle'}); menses=${p.menstruation.phase}; bond=${(p.bondPartners||[]).join(',')||'none'}; simulated condition=${p.body.condition}/100, pheromone emission=${p.pheromone.emission}/100, sensitivity=${p.body.sensitivity}, stress=${p.body.stress}; recent meds=${p.medication.filter(m=>m.until>=s.clockHours).map(m=>m.drug).join(',')||'none'}.`);
   if(p.anatomyDetail||p.inseminationOrgan)out.push(`${id.toUpperCase()} anatomical notes=${(p.anatomyDetail||'').slice(0,240)}; insemination anatomy=${(p.inseminationOrgan||'').slice(0,240)}.`);
   const prs=p.presentation||{};if(Object.values(prs).some(Boolean))out.push(`${id.toUpperCase()} interaction profile: scent=${prs.pheromoneScent||'unknown'}; contact=${prs.contactStyle||'unknown'}; voice=${prs.vocalStyle||'unknown'}; speech=${prs.speechStyle||'unknown'}.`);
   const pref=p.preferences||{};

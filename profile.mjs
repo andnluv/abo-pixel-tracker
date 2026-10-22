@@ -3,7 +3,8 @@ export const PROFILE_FIELDS = Object.freeze({
   sex:'성별', secondary:'제2성별', anatomy:'성기 형태·신체 유형', anatomyDetail:'특수 신체 구조',
   inseminationOrgan:'가상 수태기관·경로', gestate:'임신 가능', impregnate:'수태 가능',
   menstruationEnabled:'월경', cycleEnabled:'히트·러트', pheromoneScent:'페로몬 향',
-  contactStyle:'접촉 성향', vocalStyle:'발성 성향', speechStyle:'언어 성향'
+  contactStyle:'접촉 성향', vocalStyle:'발성 성향', speechStyle:'언어 성향',
+  baseCondition:'기초 컨디션 (0~100)', basePheromone:'기초 페로몬 발산 (0~100)'
 });
 const enumFields={
   sex:['male','female','nonbinary','unknown'],secondary:['alpha','beta','omega','unknown'],
@@ -11,6 +12,7 @@ const enumFields={
 };
 const booleanFields=['gestate','impregnate','menstruationEnabled','cycleEnabled'];
 const stringFields=['anatomyDetail','inseminationOrgan','pheromoneScent','contactStyle','vocalStyle','speechStyle'];
+const numericFields=['baseCondition','basePheromone'];
 /** Reference vocabulary only: the model chooses context-appropriate Korean labels.
  * Not a forced translation table and not a list of suggested preferences. */
 export const PROFILE_KOREAN_REFERENCE_VOCABULARY = Object.freeze([
@@ -25,7 +27,7 @@ export const PROFILE_KOREAN_REFERENCE_VOCABULARY = Object.freeze([
 const PROFILE_KOREAN_VOCABULARY_NOTE = `\nKorean vocabulary reference (examples, NOT an approved list of preferences, NOT forced one-to-one translations):\n- ${PROFILE_KOREAN_REFERENCE_VOCABULARY.join('\n- ')}\nUse accurate, natural Korean suited to each card/persona and its context. Do not force a listed term into results without evidence or a valid general candidate. Do not automatically label a relationship trait as BDSM or sexual play. Differentiate exhibitionism, embarrassment, humiliation, and other independent interests. For newly generated tags, invent an appropriate Korean label based on meaning; do not rely on a fixed dictionary.\n`;
 export const PROFILE_SYSTEM = `You analyze two ADULT fictional character descriptions for an ABO SillyTavern profile setup. Return ONLY a JSON object (no markdown):
 LANGUAGE RULE: Write all human-readable analysis prose in fluent, natural KOREAN. This includes ALL descriptive field values (pheromoneScent, contactStyle, vocalStyle, speechStyle, anatomyDetail, inseminationOrgan), every field reason, every confirmed/latent preference reason, and every preference label. Do not copy full English source descriptions into the result as analysis. Refer faithfully to the source, including original proper nouns or brief verbatim quotations only when necessary. Do NOT translate or alter machine-readable JSON keys, enum values, preference IDs, or quoted original proper nouns.
-{"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"카드에 남성이라고 명시됨"},"secondary":{"value":"omega","basis":"suggested","reason":"상처를 숨기면서도 타인의 변화에 민감한 성향을 ABO 세계관에 맞춰 해석한 가상 제안"},"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null},"preferences":{"confirmed":[{"id":"verbal_teasing","label":"언어적 도발","level":"liked","reason":"한국어로 작성한 카드 근거"}],"latent":[{"id":"some_interest","label":"문맥에 맞춘 한국어 명칭","reason":"한국어로 작성한 성격 기반 근거"}],"attitude":"curious"}},"user":{"fields":{},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
+{"char":{"fields":{"sex":{"value":"male","basis":"explicit","reason":"카드에 남성이라고 명시됨"},"secondary":{"value":"omega","basis":"suggested","reason":"상처를 숨기면서도 타인의 변화에 민감한 성향을 ABO 세계관에 맞춰 해석한 가상 제안"},"anatomy":null,"anatomyDetail":null,"inseminationOrgan":null,"gestate":null,"impregnate":null,"menstruationEnabled":null,"cycleEnabled":null,"pheromoneScent":null,"contactStyle":null,"vocalStyle":null,"speechStyle":null,"baseCondition":{"value":74,"basis":"suggested","reason":"예시 수치: 실제 카드·페르소나의 체력 설정으로 추정해야 함"},"basePheromone":{"value":53,"basis":"suggested","reason":"예시 수치: 실제 ABO 유형과 페로몬 설정으로 추정해야 함"}},"preferences":{"confirmed":[{"id":"verbal_teasing","label":"언어적 도발","level":"liked","reason":"한국어로 작성한 카드 근거"}],"latent":[{"id":"some_interest","label":"문맥에 맞춘 한국어 명칭","reason":"한국어로 작성한 성격 기반 근거"}],"attitude":"curious"}},"user":{"fields":{"baseCondition":{"value":71,"basis":"suggested","reason":"예시 수치: 실제 유저 페르소나의 체력 설정으로 추정해야 함"},"basePheromone":{"value":46,"basis":"suggested","reason":"예시 수치: 실제 유저 페르소나의 ABO·페로몬 설정으로 추정해야 함"}},"preferences":{"confirmed":[],"latent":[],"attitude":"reserved"}}}
 EXPLICIT SETUP SELECTIONS AND PHEROMONE SCENT:
 - Each char/user may include setupSelections from the initial STATUS panel. These values are MANUAL choices, NOT guesses, and take precedence over missing or conflicting secondary/sex facts in the original card. The UI already saves these choices; never silently change alpha/omega/beta to another type based on card omissions or stereotypes.
 - When setupSelections.secondary is "alpha" or "omega", OR this initial analysis proposes alpha/omega as secondary, and there is no established pheromoneScent (neither an explicit pheromone description in the source nor a nonempty setupSelections.pheromoneScent), INCLUDE a pheromoneScent field with a NEW, concise, plausible, Korean-language fragrance proposal. Build its scent notes from this character's individual characterization, manner, sensory imagery and atmosphere rather than defaulting to gender/ABO stereotypes. Use {"value":"한국어 향 조합","basis":"suggested","reason":"캐릭터의 어떤 분위기·묘사에서 향을 착안했는지"}. Do not mark a newly invented scent as explicit, and leave it unselected so the user can opt in.
@@ -39,6 +41,11 @@ FIRST INITIAL PROFILE ANALYSIS — CONTEXT-BASED SECONDARY GENDER AND COMPATIBLE
 - For anatomy, the EXTENSION—not model preference or stereotypes—assigns an arbitrary option from its allowed sex+secondary pool AFTER secondary is selected. If anatomy is explicitly present in the original card or fixed in setupSelections.anatomy, preserve it. Do not infer genital anatomy from sexual position, D/s, or sexual preferences. Leave suggested secondary and anatomy UNCHECKED until the user edits/approves them.
 - The secondary field is REQUIRED in the model output whenever not explicitly fixed. Include enough substantive Korean analysis reasoning in each suggested secondary field; leaving the value missing will result in a validation failure and a format retry. The model's anatomy value may be omitted when not fixed; the extension supplies the compatible anatomy candidate.
 - Generate a character-grounded pheromoneScent suggestion for ALPHA/OMEGA even if that secondary type is an AI suggestion, provided no explicit/manually fixed scent exists. Beta gets no inferred pheromone scent by default.
+INITIAL NUMERIC VITAL PROPOSALS (CHAR and USER, BOTH required):
+- Include baseCondition and basePheromone as distinct integer scores in [0,100] with basis:"suggested" and concise Korean reasoning tied to each card/persona. These scores are FICTIONAL SIMULATION baselines, not medical measurements or permanent current state.
+- Base condition reflects bodily constitution/stamina/health text. Base pheromone reflects the selected ABO category and individualized pheromone notes; Beta generally lower but explicit world exceptions override. Personality, sexual preferences, top/bottom roles and D/s do not by themselves establish pheromone strength or health.
+- When information is sparse STILL propose both numerical values using a reasonable tentative fictional baseline (and explicitly say it is a weak inference), not "unknown" or identical fixed numbers for everyone. Do not fabricate evidence or pretend precise measurements.
+- These are opt-in USER-EDITABLE proposals; until selected, locally estimated per-character baselines provide immediately visible numbers.
 ABO PHYSIOLOGY DEPENDENCY (CRITICAL — not an ordinary absence classifier):
 - Choose secondary FIRST using character personality/preferences, then choose genital anatomy from that sex+ABO pool; ONLY THEN derive gestate (ability to carry pregnancy), impregnate (ability to cause conception), menstruationEnabled, and cycleEnabled using the fictional ABO rule set. Never assign these four booleans simply because the card fails to mention pregnancy, menstruation or heat/rut.
 - A character explicitly described as male can still be a gestational or menstruating OMEGA in this setting, including the fictional male-only Omega anatomy (with distinct reproductive/menstrual routes). Their physical sex, sexual position (TOP/BOTTOM), D/s dynamics and personality do NOT determine these four flags. In particular TOP fixed is NOT evidence of ability to cause conception, and male is NOT evidence of infertility or absence of a cycle.
@@ -122,6 +129,7 @@ export function normalizeSetupProposal(result,chatId){
    if(enumFields[key]){if(!enumFields[key].includes(value)||value==='unknown')continue;}
    else if(booleanFields.includes(key)){if(typeof value!=='boolean')continue;}
    else if(stringFields.includes(key)){if(typeof value!=='string'||!value.trim())continue;value=clean(value);}
+   else if(numericFields.includes(key)){if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>100)continue;value=Math.round(value);}
    else continue;
    fields.push({key,label,value,basis:entry.basis==='explicit'?'explicit':'suggested',reason:clean(entry.reason).slice(0,150),checked:entry.basis==='explicit'});
   }
