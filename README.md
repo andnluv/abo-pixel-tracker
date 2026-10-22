@@ -11,7 +11,7 @@ Stage 1 finds NPC names from Korean/English labels, name fields, profile heading
 ### v0.3.17: Mobile panel layout fix
 Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
 
-# 그날의 사정 v0.3.30 (Beta)
+# 그날의 사정 v0.3.33 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 
@@ -185,3 +185,9 @@ Completed nape bites and explicit completed-bond narration can be recognized wit
 ### v0.3.30 확장 실행 버튼 정리
 - 확장 메뉴에서 여는 기능만 유지하고, 확장 설정 화면에 생성되던 중복 실행 패널은 삭제합니다.
 - 이전 버전의 중복 패널이 남은 경우에도 로딩 중 제거합니다.
+
+### v0.3.33: Display audit and dedicated scene tab
+
+- Added a **Scenes** tab for current posture/contact/vocal/speech and completed-scene history, separate from preferences.
+- UI-only localization for known scene, instinct, cycle-mode, pregnancy, medication, adverse-effect and event IDs; no persistent keys or inference rules changed.
+- Updated visible UI version to match manifest/package (0.3.33). Real SillyTavern integration remains to be verified.

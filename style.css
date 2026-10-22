@@ -214,3 +214,9 @@
   #abop-panel .abop-nav button{flex:1 1 0;min-width:0;padding:6px 1px}
   #abop-panel .abop-nav button small{font-size:10px;letter-spacing:-.35px}
 }
+
+/* v0.3.33 - scene has its own tab; separate evidence from preferences. */
+#abop-panel .abop-minihead{font-size:12px;font-weight:750;color:var(--ab-lilac);margin:15px 0 6px}
+#abop-panel .abop-scene-details .abop-line{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline}
+#abop-panel .abop-scene-key{min-width:64px;color:var(--ab-muted);font-size:12px;font-weight:750}
+@media(max-width:380px){#abop-panel .abop-nav button{flex:0 0 58px;min-width:58px}}

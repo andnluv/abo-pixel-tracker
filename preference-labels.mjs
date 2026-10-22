@@ -123,7 +123,8 @@ export const CYCLE_PHASE_LABELS = Object.freeze({
 });
 export const INSTINCT_LABELS = Object.freeze({
   "approach": "접근",
-  "contact_seek": "접촉 요구",
+  "contact_seek": "접촉 요청",
+  "contact_request": "접촉 요청",
   "protect": "보호",
   "jealousy": "질투",
   "territorial": "영역 행동",
@@ -131,7 +132,7 @@ export const INSTINCT_LABELS = Object.freeze({
   "bond_partner_seek": "결합 상대 탐색"
 });
 export const PREGNANCY_LABELS = Object.freeze({
-  "none": "해당 없음",
+  "none": "임신 아님",
   "conception_pending": "임신 여부 판정 중",
   "pregnant_unaware": "임신 · 미인지",
   "pregnant_suspected": "임신 · 의심",
@@ -140,7 +141,8 @@ export const PREGNANCY_LABELS = Object.freeze({
   "postpartum": "산후 회복",
   "unaware": "모름",
   "suspected": "의심",
-  "confirmed": "확인"
+  "confirmed": "확인",
+  "ended": "임신 종료"
 });
 
 export function preferenceLabel(id) {
@@ -176,15 +178,64 @@ export const SCENE_LABELS = Object.freeze({
   'lying_down':'누운 자세', 'side_lying':'옆으로 누운 자세',
   'penetration':'삽입', 'kissing':'입맞춤', 'hugging':'포옹',
   'touching':'접촉', 'holding_hands':'손잡기', 'cuddling':'껴안기',
-  'contact_request':'접촉 요청', 'none':'없음'
+  'contact_request':'접촉 요청', 'none':'없음',
+  'seated_close':'가까이 앉은 자세', 'sitting_close':'가까이 앉은 자세',
+  'face_to_face':'서로 마주 보는 자세', 'seated_face_to_face':'마주 앉은 자세',
+  'hand_held_to_cheek':'상대의 손을 뺨에 댄 상태', 'hand_on_cheek':'뺨을 감싸는 손',
+  'forehead_on_shoulder':'어깨에 이마를 기댄 자세', 'resting_forehead_on_shoulder':'어깨에 이마를 기댄 자세',
+  'on_lap':'무릎 위에 앉은 자세', 'leaning_close':'몸을 가까이 기울인 자세',
+  'hand_holding':'손잡기', 'holding_wrist':'손목 잡기', 'wrist_holding':'손목 잡기',
+  'neck_kiss':'목덜미 입맞춤', 'kissing_neck':'목덜미 입맞춤',
+  'cheek_touch':'뺨에 손 대기', 'hand_to_cheek':'뺨에 손 대기',
+  'hand_kiss':'손등 입맞춤', 'talking':'대화', 'conversation':'대화',
+  'eye_contact':'눈 맞춤', 'embrace':'포옹', 'hug':'포옹'
 });
 export function sceneDisplayLabel(value) {
   const raw=String(value??'').trim();
   if (!raw) return '—';
-  return SCENE_LABELS[raw.toLowerCase()] ?? PREFERENCE_LABELS[raw.toLowerCase()] ?? raw;
+  const key=raw.toLowerCase();
+  if(SCENE_LABELS[key]||PREFERENCE_LABELS[key])return SCENE_LABELS[key]??PREFERENCE_LABELS[key];
+  // Only split strings which are visibly machine tags. Free narration is never segmented.
+  if(/^[a-z0-9_-]+(?:\s*[·|,;]\s*[a-z0-9_-]+)+$/i.test(raw))
+    return raw.split(/\s*[·|,;]\s*/).map(sceneDisplayLabel).join(' · ');
+  return raw;
 }
 export function sceneRecordSummary(scene) {
   if (!scene || typeof scene!=='object') return '기록 없음';
-  const parts=[scene.posture,scene.contact,...(Array.isArray(scene.play)?scene.play:[])].filter(Boolean).map(sceneDisplayLabel);
+  const parts=[scene.posture,scene.contact,scene.vocal,scene.speech,...(Array.isArray(scene.play)?scene.play:[])].filter(Boolean).map(sceneDisplayLabel);
   return [...new Set(parts)].join(' · ') || '세부 내용 없음';
 }
+
+/** Localized UI labels. Never use these to rewrite persisted enums. */
+export const CYCLE_MODE_LABELS = Object.freeze({
+  enabled:'히트·러트 추적 중',disabled:'히트·러트 추적 중지',
+  absent:'히트·러트 없음',unset:'히트·러트 미설정'
+});
+export const DRUG_LABELS = Object.freeze({
+  oral_suppressant:'경구 억제제', long_suppressant:'장기 억제제',
+  emergency_suppressant:'응급 억제제', scent_blocker:'페로몬 차단제',
+  symptom_inducer:'증상 유도제', cycle_inducer:'주기 유도제',
+  unlicensed_mixture:'비승인 혼합약물',
+  emergency_contraceptive:'응급 피임약', oral_contraceptive:'일반 피임약'
+});
+export const ADVERSE_LABELS = Object.freeze({
+  general:'일반 부작용',unexpected_heat_or_rut:'예기치 않은 히트·러트 발현',
+  induced:'약물 유발 증상'
+});
+export const RATE_LABELS = Object.freeze({
+  rise:'배란 가능성 증가기',fertile:'가임기',peak:'최고 가임기',fall:'가임기 종료 단계'
+});
+export const EVENT_KIND_LABELS = Object.freeze({
+  time_advance:'서사 시간 경과',preference:'성향 정보 기록',scene:'장면 정보 기록',
+  scene_unverified:'현재 장면 확인 불가',heat_start:'히트 시작',rut_start:'러트 시작',
+  ovulation:'배란',bond:'각인 성립',bond_loss:'각인 상실',
+  medication:'약물 사용',exposure:'임신 가능 사건',
+  pregnancy_reveal:'임신 인지',delivery:'출산',pregnancy_end:'임신 종료',
+  npc_register:'NPC 등록'
+});
+export const personRoleLabel = value => value==='char'?'캐릭터':value==='user'?'유저':String(value??'');
+export const cycleModeLabel = value => CYCLE_MODE_LABELS[value] ?? String(value??'미설정');
+export const drugLabel = value => DRUG_LABELS[value] ?? String(value??'');
+export const adverseLabel = value => ADVERSE_LABELS[value] ?? String(value??'');
+export const rateLabel = value => RATE_LABELS[value] ?? String(value??'');
+export const eventKindLabel = value => EVENT_KIND_LABELS[value] ?? String(value??'기타 사건');
