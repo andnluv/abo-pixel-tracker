@@ -1,3 +1,10 @@
+## v0.3.39 — Optional Korean UI postprocessing
+- **Settings → 한국어 표시 후처리** lets users select disabled, rule-only, automatic AI as needed (default), or AI translation & polishing.
+- Choose scopes independently: preferences, current scenes, completed scenes, recent event types, status descriptions.
+- A separate saved SillyTavern connection profile may be selected for localization, or reuse the analysis/current connection.
+- New analysis triggers display-only postprocessing; existing cached English text can be handled with **현재 채팅 기존 표시 한국어 정리**. No original event IDs, RP messages or USER actions are modified.
+- Results are cached per chat; failed translations fall back to pre-existing UI labels. Additional API charges may apply. See `KOREAN_POSTPROCESS_DESIGN_KO.md`.
+
 ## v0.3.38 localization update
 - The visible preference tier `restricted` is now Korean `경계` (boundary/caution). Stored IDs and tier logic are unchanged.
 - New analyzer preference events carry an optional natural Korean `label`; it survives replay.
@@ -37,7 +44,7 @@ Stage 1 finds NPC names from Korean/English labels, name fields, profile heading
 ### v0.3.17: Mobile panel layout fix
 Mobile panel now follows the visual viewport and uses a fullscreen modal with a fixed header/close button, horizontal tabs and a fixed status line. Only the panel content scrolls. Fields are one column. Desktop and analysis/storage rules are unchanged.
 
-# 그날의 사정 v0.3.37 (Beta)
+# 그날의 사정 v0.3.39 (Beta)
 
 Independent SillyTavern client extension (Tavern Helper is **not** required).
 

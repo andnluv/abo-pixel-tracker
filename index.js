@@ -18,11 +18,14 @@ import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from './global-an
 import {mountExtensionLaunchers} from './menu-launcher.mjs';
 import {extractDrugClassesFromWorldInfo} from './worldinfo-drug-catalog.mjs';
 import {PREFERENCE_LOCALIZATION_SYSTEM,localizationItems,localizationPrompt,parseLocalizationOutput} from './preference-localization.mjs';
+import {POSTPROCESS_SCOPES,DEFAULT_POSTPROCESS,normalizedPostprocessSettings,displayCacheText,collectDisplayCandidates,choosePostprocessCandidates,postprocessKey,ruleDisplayText,batchPostprocess,postprocessPrompt,parsePostprocessReply,DISPLAY_POSTPROCESS_SYSTEM} from './display-postprocess.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
 let active=false, working=false, state=null, status='준비됨',panelOpen=false, tab='status', lastKey='';
 let timeSyncPreview=null,historyStatePreview=null,historyScanCancelled=false;
+let postprocessBusy=false,postprocessCancel=false,postprocessPending=false;
+const autoPostprocessFailures=new Set();
 let worldInfoDrugReference={status:'loading',catalog:null,error:''};
 let sessionApiKey=''; // Never serialized or persisted. Cleared on page reload.
 let npcCandidates=[], npcScanChatId='', npcSearch='', npcReviewEntries=[], npcScanStats=null, npcPreviewId='', npcAiBatchOffset=0;
@@ -41,9 +44,10 @@ function displayAlertKo(message,hideTruth=false){
  }
  return raw;
 }
+function eventHiddenByPrivacy(kind,config){return config?.hideTruth===true&&['exposure','pregnancy_reveal','pregnancy_end','delivery'].includes(kind);}
 function eventSummaryKo(e){
  const person=personRoleLabel(e.person);
- const kind=e.kind==='vital_observation'?'신체·페로몬 상태 변화':eventKindLabel(e.kind);
+ const kind=e.kind==='vital_observation'?'신체·페로몬 상태 변화':localizedText('events','shared','kind',String(e.kind||''),eventKindLabel(e.kind));
  if(e.kind==='time_advance'&&Number.isFinite(e.hours))return `${kind} · ${fmt(e.hours)}시간`;
  return e.person?`${person} · ${kind}`:kind;
 }
@@ -99,6 +103,15 @@ function connectionOptions(config){
  htmlOptions+=`<option value="custom" ${current==='custom'?'selected':''}>직접 API 연결 (OpenAI 호환)</option>`;
  return htmlOptions;
 }
+function postprocessConnectionOptions(current){
+ let result=`<option value="same" ${current==='same'?'selected':''}>분석 연결 그대로 사용</option><option value="current" ${current==='current'?'selected':''}>현재 SillyTavern 연결</option>`;
+ for(const p of [...supportedProfiles()].sort((a,b)=>String(a.name).localeCompare(String(b.name)))){
+  const id=`profile:${p.id}`;
+  result+=`<option value="${html(id)}" ${current===id?'selected':''}>별도 프로필 · ${html(p.name||p.id)}</option>`;
+ }
+ if(current.startsWith('profile:')&&!supportedProfiles().some(p=>`profile:${p.id}`===current))result+=`<option value="${html(current)}" selected>선택한 후처리 프로필을 찾을 수 없음</option>`;
+ return result;
+}
 function directEndpoint(raw){
  const url=new URL(String(raw).trim());
  if(!['https:','http:'].includes(url.protocol))throw new Error('http(s) API 주소만 사용 가능합니다');
@@ -107,8 +120,8 @@ function directEndpoint(raw){
  url.pathname=/\/chat\/completions$/.test(path)?path:`${path||''}/chat/completions`;
  return url.toString();
 }
-async function analysisRequest(systemPrompt,prompt,maxTokens=2200){
- const config=analysisConfig(), chosen=connectionValue(config);
+async function analysisRequest(systemPrompt,prompt,maxTokens=2200,connectionOverride=null){
+ const config=analysisConfig(), chosen=connectionOverride===null?connectionValue(config):connectionOverride;
  if(!chosen){
   if(typeof S().generateRaw!=='function')throw new Error('현재 SillyTavern 연결의 generateRaw가 없습니다');
   return extractedText(await S().generateRaw({systemPrompt,prompt,responseLength:maxTokens}));
@@ -129,6 +142,85 @@ async function analysisRequest(systemPrompt,prompt,maxTokens=2200){
   return content;
  }
  throw new Error('알 수 없는 분석 연결 설정입니다');
+}
+function postprocessSettings(){
+ const shared=sharedAnalysisSettings();
+ return normalizedPostprocessSettings({mode:shared.postprocessMode,connection:shared.postprocessConnection,scopes:shared.postprocessScopes});
+}
+function localizedText(scope,role,field,source,fallback){
+ const m=meta(false),opt=postprocessSettings();
+ if(opt.mode==='none'||!opt.scopes.includes(scope))return fallback;
+ const ruled=ruleDisplayText(scope,field,source,fallback);
+ if(opt.mode==='rules')return ruled;
+ return displayCacheText(m?.displayPostprocessCache,scope,role,field,source,ruled);
+}
+function localizedPreference(pref,m,role){
+ const base=preferenceDisplayLabel(pref,m.preferenceTranslations||{});
+ if(['custom','user_added_setup'].includes(pref?.source))return base;
+ return localizedText('preference',role,`preference:${pref.id}`,pref.label||pref.id,base);
+}
+function localizedScene(scope,role,field,raw){
+ return localizedText(scope,role,field,raw,sceneDisplayLabel(raw));
+}
+function localizedSceneSummary(scene,role){
+ if(!scene||typeof scene!=='object')return '기록 없음';
+ const pieces=['posture','contact','vocal','speech'].filter(k=>scene[k]).map(k=>localizedScene('history',role,k,scene[k]));
+ for(const play of (Array.isArray(scene.play)?scene.play:[]))pieces.push(localizedScene('history',role,'play',play));
+ return [...new Set(pieces.filter(Boolean))].join(' · ')||'세부 내용 없음';
+}
+function postprocessMatches(m,origin){
+ return S()?.chatId===origin.chatId&&meta(false)===m&&m.userPersonaIdentity===origin.persona&&selectedNpcId(m)===origin.target;
+}
+async function runDisplayPostprocess({automatic=false}={}){
+ if(postprocessBusy){if(automatic)postprocessPending=true;return;}
+ if(working||!state)return;
+ const m=meta(false);if(!m)return;
+ const settings=postprocessSettings();
+ if(['none','rules'].includes(settings.mode)){
+  if(!automatic)setStatus('현재 모드에서는 AI 후처리가 비활성화되어 있습니다. 설정에서 자동 또는 AI 윤문을 선택하세요.');
+  return;
+ }
+ const list=choosePostprocessCandidates(state,m.displayPostprocessCache||{},m.preferenceTranslations||{},settings)
+  .filter(x=>!(x.scope==='events'&&eventHiddenByPrivacy(x.source,m.config)))
+  .filter(x=>!automatic||!autoPostprocessFailures.has(`${S().chatId}:${x.scope}:${x.role}:${x.field}:${x.source}`));
+ // The explicit button uses consecutive batches; auto-mode only considers the latest state.
+ if(!list.length){if(!automatic)setStatus('한국어로 정리할 새 항목이 없습니다.');return;}
+ if(!automatic&&!window.confirm(`현재 표시에서 한국어 후처리가 필요한 ${list.length}개 항목을 AI로 정리할까요? 추가 API 호출과 비용이 발생할 수 있습니다. 원본 기록은 변경되지 않습니다.`))return;
+ const origin={chatId:S().chatId,persona:m.userPersonaIdentity,target:selectedNpcId(m)};
+ const connection=settings.connection==='same'?null:settings.connection==='current'?'':settings.connection;
+ const batches=batchPostprocess(list);
+ postprocessBusy=true;postprocessCancel=false;
+ if(!automatic){setStatus(`한국어 후처리 0/${list.length}개`);render();}
+ let changed=0,failed=0,processed=0;
+ try{
+  for(const chunk of batches){
+   if(postprocessCancel)break;
+   if(!postprocessMatches(m,origin))throw new Error('채팅·페르소나·NPC가 변경되어 후처리 중단');
+   try{
+    const raw=await analysisRequest(DISPLAY_POSTPROCESS_SYSTEM,postprocessPrompt(chunk),Math.min(3200,Math.max(800,chunk.length*175)),connection);
+    if(!postprocessMatches(m,origin))throw new Error('채팅·페르소나·NPC 변경');
+    const translated=parsePostprocessReply(raw,chunk);
+    if(Object.keys(translated).length){
+     const previous=m.displayPostprocessCache||{};
+     m.displayPostprocessCache=Object.fromEntries(Object.entries({...previous,...translated}).slice(-1500));
+     if(!await persist()){m.displayPostprocessCache=previous;throw new Error('표시 캐시 저장 실패');}
+     changed+=Object.keys(translated).length;
+    }
+    failed+=chunk.length-Object.keys(translated).length;
+    if(automatic)for(const entry of chunk)if(!Object.hasOwn(translated,postprocessKey(entry)))autoPostprocessFailures.add(`${origin.chatId}:${entry.scope}:${entry.role}:${entry.field}:${entry.source}`);
+   }catch(err){
+    if(!postprocessMatches(m,origin))throw err;
+    console.warn('[ABO Pixel] Korean postprocessing skipped batch',err);
+    failed+=chunk.length;
+    if(automatic)for(const entry of chunk)autoPostprocessFailures.add(`${origin.chatId}:${entry.scope}:${entry.role}:${entry.field}:${entry.source}`);
+   }
+   processed+=chunk.length;
+   if(!automatic)setStatus(`한국어 후처리 ${processed}/${list.length}개 · 적용 ${changed} · 미처리 ${failed}`);
+  }
+  if(!automatic)setStatus(`${postprocessCancel?'후처리 중단':'후처리 완료'} · 한국어 ${changed}개 · 미처리 ${failed}개 (원본 보존)`);
+  else if(failed){console.warn('[ABO Pixel] postprocessing skipped',failed,'items');setStatus(`분석 완료 · 한국어 표시 ${failed}개 미처리 (원본 유지)`);}
+ }catch(err){if(!automatic)setStatus(`한국어 후처리 중단: ${err.message}`);}
+ finally{postprocessBusy=false;postprocessCancel=false;if(postprocessMatches(m,origin))refresh();if(postprocessPending){postprocessPending=false;void runDisplayPostprocess({automatic:true});}}
 }
 function meta(create=true){
  const c=S(); if(!c?.chatId||!c.chatMetadata)return null;
@@ -307,6 +399,7 @@ function sourceForCurrent(){
 }
 async function analyzeLatest({force=false}={}){
  if(working)return;
+ let analyzeSucceeded=false;
  const m=meta();syncCanon();const src=sourceForCurrent();if(!m||!src)return setStatus('분석할 CHAR 메시지가 없습니다');
  if(!m.config.enabled)return setStatus('확장이 비활성화됨');
  if(!force&&!m.config.autoAnalyze)return;
@@ -351,8 +444,8 @@ async function analyzeLatest({force=false}={}){
     m.ledger[originKey]={...common,events:[...oldEvents,...additional],personaId:originPersona,at:Date.now()};
    }
   }
-  await persist();setStatus(`분석 완료 · 확인된 사건 ${events.length}건`);refresh();
- }catch(e){console.error('[ABO Pixel] generation error',e);setStatus(`분석 실패: ${e.message||'모델/API 연결 확인'}`);}finally{working=false;render();}
+  if(!await persist())throw new Error('분석 결과 저장 실패');setStatus(`분석 완료 · 확인된 사건 ${events.length}건`);refresh();analyzeSucceeded=true;
+ }catch(e){console.error('[ABO Pixel] generation error',e);setStatus(`분석 실패: ${e.message||'모델/API 연결 확인'}`);}finally{working=false;render();if(analyzeSucceeded)void runDisplayPostprocess({automatic:true});}
 }
 /** An opt-in, never-auto-applied, chronological historical scan.
  * All model responses remain in memory until an explicit preview confirmation. */
@@ -630,10 +723,10 @@ function renderTimeSyncPreview(m){
 function sceneHasDetails(scene){
  return !!scene && ['posture','contact','vocal','speech'].some(k=>typeof scene[k]==='string'&&scene[k].trim()) || (Array.isArray(scene?.play)&&scene.play.length>0);
 }
-function sceneDetailRows(scene){
- const fields=[['자세',scene.posture],['접촉',scene.contact],['발성',scene.vocal],['대화·발화',scene.speech]];
- if(Array.isArray(scene.play)&&scene.play.length)fields.push(['기타 활동',scene.play.map(sceneDisplayLabel).join(' · ')]);
- return fields.filter(([,value])=>String(value??'').trim()).map(([name,value])=>`<div class="abop-line"><span class="abop-scene-key">${name}</span><span>${html(sceneDisplayLabel(value))}</span></div>`).join('');
+function sceneDetailRows(scene,role){
+ const fields=[['자세','posture',scene.posture],['접촉','contact',scene.contact],['발성','vocal',scene.vocal],['대화·발화','speech',scene.speech]];
+ if(Array.isArray(scene.play)&&scene.play.length)for(const raw of scene.play)fields.push(['기타 활동','play',raw]);
+ return fields.filter(([,field,value])=>String(value??'').trim()).map(([name,field,value])=>`<div class="abop-line"><span class="abop-scene-key">${name}</span><span>${html(localizedScene('scene',role,field,value))}</span></div>`).join('');
 }
 function selectedSection(){
  const m=meta(false);if(!state||!m)return `<p class="abop-muted">채팅을 연 뒤 사용할 수 있습니다.</p>`;
@@ -651,7 +744,7 @@ function selectedSection(){
   ${renderHistoryStatePreview(m)}
   <div class="abop-actions"><input id="abop-hours" type="number" min="0" step="1" placeholder="진행 시간(h)" aria-label="진행 시간"/><button data-action="advance">시간 적용</button><button data-action="rebuild">다시 계산</button></div>
   ${state.alerts.slice(-3).map(x=>displayAlertKo(x,m.config.hideTruth===true)).filter(Boolean).map(x=>`<p class="abop-note">${html(x)}</p>`).join('')}
-  <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">${Math.floor(e.at/24)}일 차 · ${html(eventSummaryKo(e))}</div>`).join('')||'기록 없음'}</details></section>`;
+  <details><summary>최근 사건</summary>${state.events.slice(-14).reverse().map(e=>`<div class="abop-line">${Math.floor(e.at/24)}일 차 · ${html(eventHiddenByPrivacy(e.kind,m.config)?'비공개 상태 사건':eventSummaryKo(e))}</div>`).join('')||'기록 없음'}</details></section>`;
  if(tab==='cycles')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · ${p.cycle.enabled?'주기 현황':p.menstruation.enabled?'월경 현황 · 약물':`${cycleModeLabel(cycleMode(p))} · 약물`}</header><p class="abop-title">${html(p.name)}</p>${cycleOverview(p,state.clockHours,state.seed,m.config.hideTruth===true)}
  <details><summary>약물 · 부작용 · 내성</summary><p class="abop-muted">복용 ${p.medication.length}건 · 부작용 기록 ${p.adverse.length}건</p>
  ${(p.adverse||[]).slice(-4).map(x=>`<div class="abop-line">${html(drugLabel(x.drug))} · ${html((x.symptoms||[x.type||'기타']).map(adverseLabel).join(', '))}${Number.isFinite(x.until)&&x.until<state.clockHours?' (경과)':''}</div>`).join('')||'<p class="abop-muted">부작용 기록 없음</p>'}
@@ -661,8 +754,8 @@ function selectedSection(){
  <button data-action="recordMedication" data-role="${id}">확인된 복용 기록</button></div>
  <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
  if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(pregnancyLabel(p.pregnancy.status))}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`${Math.floor(p.pregnancy.dueAt/24)}일 차 · ${fmt(p.pregnancy.dueAt%24)}시간`}</p><p>결합: ${html((p.bondPartners||[]).map(pid=>state.people[pid]?.name||pid).join(', ')||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(state.people[w.gestator]?.name||personRoleLabel(w.gestator))} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<section class="abop-frame"><div class="abop-actions"><button data-action="translatePreferences" ${working?'disabled':''}>AI로 한국어 표시명 정리</button></div><p class="abop-muted">알 수 없는 영어 코드와 어색한 한국어 표현을 한 번에 정리합니다. 별도 AI 호출이 발생하며 추가 API 비용이 들 수 있습니다. 취향 종류·선호도·원본 ID는 변경하지 않습니다.</p><p class="abop-muted">[경계]: 해당 인물이 조심스럽게 접근하거나 경계를 두는 요소. 금지나 비선호와는 별도 분류입니다.</p></section><div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p><h4 class="abop-minihead">확정·관찰된 취향</h4>${p.preferences.confirmed.map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x,m.preferenceTranslations||{}))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">기록 없음</p>'}<h4 class="abop-minihead">잠재적 관심 및 후보</h4>${p.preferences.latent.map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x,m.preferenceTranslations||{}))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">후보 없음</p>'}</section>`).join('')}</div>`;
- if(tab==='scenes')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 현재 장면</header><div class="abop-title">${html(p.name)}</div>${p.scene?.verified===false?'<p class="abop-muted">최신 서술에서 현재 장면이 확인되지 않았습니다.</p>':sceneHasDetails(p.scene)?`<div class="abop-scene-details">${sceneDetailRows(p.scene)}</div>`:'<p class="abop-muted">확인된 자세·접촉 정보가 없습니다.</p>'}<hr/><p class="abop-muted">완료된 장면: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>완료된 장면 기록 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line"><small>${i+1}.</small> ${html(sceneRecordSummary(scene))}</div>`).join('')}</details>`:'<p class="abop-muted">완료된 장면 없음</p>'}</section>`).join('')}</div>`;
+ if(tab==='preferences')return `<section class="abop-frame"><div class="abop-actions"><button data-action="translatePreferences" ${working?'disabled':''}>AI로 한국어 표시명 정리</button></div><p class="abop-muted">알 수 없는 영어 코드와 어색한 한국어 표현을 한 번에 정리합니다. 별도 AI 호출이 발생하며 추가 API 비용이 들 수 있습니다. 취향 종류·선호도·원본 ID는 변경하지 않습니다.</p><p class="abop-muted">[경계]: 해당 인물이 조심스럽게 접근하거나 경계를 두는 요소. 금지나 비선호와는 별도 분류입니다.</p></section><div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p><h4 class="abop-minihead">확정·관찰된 취향</h4>${p.preferences.confirmed.map(x=>`<div class="abop-line">${html(localizedPreference(x,m,id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">기록 없음</p>'}<h4 class="abop-minihead">잠재적 관심 및 후보</h4>${p.preferences.latent.map(x=>`<div class="abop-line">${html(localizedPreference(x,m,id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">후보 없음</p>'}</section>`).join('')}</div>`;
+ if(tab==='scenes')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 현재 장면</header><div class="abop-title">${html(p.name)}</div>${p.scene?.verified===false?'<p class="abop-muted">최신 서술에서 현재 장면이 확인되지 않았습니다.</p>':sceneHasDetails(p.scene)?`<div class="abop-scene-details">${sceneDetailRows(p.scene,id)}</div>`:'<p class="abop-muted">확인된 자세·접촉 정보가 없습니다.</p>'}<hr/><p class="abop-muted">완료된 장면: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>완료된 장면 기록 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line"><small>${i+1}.</small> ${html(localizedSceneSummary(scene,id))}</div>`).join('')}</details>`:'<p class="abop-muted">완료된 장면 없음</p>'}</section>`).join('')}</div>`;
  const shared=sharedAnalysisSettings();
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
@@ -682,6 +775,14 @@ function selectedSection(){
   <label class="abop-fieldlabel">초기 셋업 최대 출력 토큰<input type="number" min="${MIN_SETUP_OUTPUT_TOKENS}" max="${MAX_SETUP_OUTPUT_TOKENS}" step="1" data-custom="setupMaxTokens" value="${html(normalizeSetupOutputTokens(shared.setupMaxTokens))}" /></label>
   <p class="abop-muted">모델·제공업체의 실제 최대 출력 토큰은 다를 수 있습니다. 현재 연결 사용 시에는 SillyTavern의 현재 연결에 응답 길이 값을 전달합니다.</p>
   <button data-action="refreshProfiles">프로필 목록 새로고침</button><button data-action="testConnection">분석 연결 테스트</button><p class="abop-muted">연결 프로필·직접 API 주소/모델·초기 분석 토큰 값은 전 채팅 공통으로 보존됩니다. API 키는 보안상 브라우저 메모리에만 유지되며 새로고침하면 사라집니다.</p>
+  <hr/><div class="abop-title">한국어 표시 후처리</div>
+  <label class="abop-fieldlabel">처리 방식<select data-postprocess="mode">${choiceHTML([['none','사용 안 함 (기존 화면 유지)'],['rules','기본 번역 사전만 사용 · AI 없음'],['auto','자동 · 필요한 표현만 AI로 번역'],['full','AI 번역 및 한국어 윤문']],postprocessSettings().mode)}</select></label>
+  <label class="abop-fieldlabel">후처리용 모델<select data-postprocess="connection">${postprocessConnectionOptions(postprocessSettings().connection)}</select></label>
+  <p class="abop-muted">저장 연결 프로필을 별도로 선택할 수 있습니다. 직접 API 연결은 기존 분석 연결을 재사용합니다. 자동 처리는 신규 분석이 끝난 뒤 필요한 표현에만 수행하며 API 비용이 발생할 수 있습니다.</p>
+  <div class="abop-title">후처리 적용 범위</div>
+  ${[['preference','취향'],['scene','현재 장면'],['history','완료된 장면'],['events','최근 사건 유형'],['status','상태 설명']].map(([key,label])=>`<label class="abop-check"><input type="checkbox" data-postprocess-scope="${key}" ${postprocessSettings().scopes.includes(key)?'checked':''}/> ${label}</label>`).join('')}
+  <div class="abop-actions"><button data-action="postprocessExisting" ${postprocessBusy?'disabled':''}>현재 채팅 기존 표시 한국어 정리</button><button data-action="resetPostprocessCache" ${postprocessBusy?'disabled':''}>번역 캐시 초기화</button>${postprocessBusy?'<button data-action="cancelPostprocess">후처리 중단</button>':''}</div>
+  <p class="abop-muted">기존 기록은 버튼으로 일괄 정리합니다. 번역 결과는 현재 채팅에 캐시하고 화면에만 적용합니다. 내부 ID·사건·상태 수치는 변경하지 않습니다. 실패 시 원래 표시가 유지됩니다.</p>
   <hr/><label class="abop-check"><input type="checkbox" data-config="enabled" ${m.config.enabled?'checked':''}/> 확장 활성화</label><label class="abop-check"><input type="checkbox" data-config="autoAnalyze" ${m.config.autoAnalyze?'checked':''}/> 응답마다 별도 분석 호출 (추가 API 비용 발생 가능)</label><label class="abop-check"><input type="checkbox" data-config="injectState" ${m.config.injectState?'checked':''}/> 다음 RP에 내부 상태 주입</label><label class="abop-check"><input type="checkbox" data-config="hideTruth" ${m.config.hideTruth?'checked':''}/> 화면에서 임신 결과 숨기기 (모델 주입에는 유지)</label>
   <label class="abop-check"><input type="checkbox" data-config="pregnancyEnabled" ${m.config.pregnancyEnabled!==false?'checked':''}/> 임신 시뮬레이션 ON/OFF (채팅별)</label>
   <label class="abop-check"><input type="checkbox" data-config="asymmetricBond" ${m.config.asymmetricBond?'checked':''}/> 비대칭 각인 ON/OFF (OFF: 알파·오메가 상호 영향 / ON: 알파 복수 각인 허용, 오메가에게만 페로몬·분리 스트레스 적용)</label>
@@ -705,7 +806,7 @@ function personCard(id,p,m){
  <label>신체 유형<select data-person="${id}" data-field="anatomy">${options(p.anatomy||anatomyDefault(p.sex,p.secondary),anatomyChoices(p.sex,p.secondary))}</select></label>
  <label>러트/히트 상태<select data-person="${id}" data-field="cycleMode">${options(cycleMode(p),[['enabled','사용 · 현재 주기 계산'],['disabled','사용 안 함 · 추적 중지'],['absent','생리적으로 없음'],['unset','미설정 · 판단 보류']])}</select></label></div>
  <div class="abop-savebar"><small>항목 변경 시 자동 저장됩니다. 자동 배정된 ABO도 확정할 수 있습니다.</small><button type="button" data-action="saveABO" data-role="${id}">ABO 선택 저장</button></div>
- <details class="abop-advanced"><summary>기초 상태값 · 직접 수정</summary><p class="abop-muted">현재 수치는 기초값에 주기·복용·부작용·명시된 서사 상태를 반영한 가상 지표입니다. 이전 버전의 일괄 70/50은 자동으로 고정하지 않습니다.</p><div class="abop-fields"><label>기초 컨디션 (0~100)<input type="number" min="0" max="100" step="1" data-person="${id}" data-field="baseCondition" value="${fmt(p.vitalBaseline.condition)}" /></label><label>기초 페로몬 (0~100)<input type="number" min="0" max="100" step="1" data-person="${id}" data-field="basePheromone" value="${fmt(p.vitalBaseline.emission)}" /></label></div><p class="abop-muted">기초 산정: ${html(p.vitalBaseline.source||'개별 기초 추정')}</p></details>
+ <details class="abop-advanced"><summary>기초 상태값 · 직접 수정</summary><p class="abop-muted">현재 수치는 기초값에 주기·복용·부작용·명시된 서사 상태를 반영한 가상 지표입니다. 이전 버전의 일괄 70/50은 자동으로 고정하지 않습니다.</p><div class="abop-fields"><label>기초 컨디션 (0~100)<input type="number" min="0" max="100" step="1" data-person="${id}" data-field="baseCondition" value="${fmt(p.vitalBaseline.condition)}" /></label><label>기초 페로몬 (0~100)<input type="number" min="0" max="100" step="1" data-person="${id}" data-field="basePheromone" value="${fmt(p.vitalBaseline.emission)}" /></label></div><p class="abop-muted">기초 산정: ${html(localizedText('status',id,'baseline',p.vitalBaseline.source||'',p.vitalBaseline.source||'개별 기초 추정'))}</p></details>
  <div class="abop-meterlabel">현재 컨디션 <b>${fmt(p.body.condition)}</b></div><div class="abop-meter"><i style="width:${clamp(p.body.condition,0,100)}%"></i></div>
  <div class="abop-meterlabel">현재 페로몬 발산 <b>${fmt(p.pheromone.emission)}</b></div><div class="abop-meter mint"><i style="width:${clamp(p.pheromone.emission,0,100)}%"></i></div>
  <div class="abop-tagrow"><span>${p.cycle.enabled?html(cyclePhaseLabel(p.cycle.phase)):html(cycleModeLabel(cycleMode(p)))}</span><span>${html(({alpha:'알파',beta:'베타',omega:'오메가'})[p.secondary]||'미설정')}</span><span>${p.bondWith?'결합 ♥':'미결합'}</span></div>
@@ -738,7 +839,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.38</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.39</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['scenes','장면','▣'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','scenes':'장면','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -832,6 +933,15 @@ async function handlePanelChange(e){
   }
   currentRoleOverrides(m,id)[field]=value;
  }else if(t.dataset.config){m.config[t.dataset.config]=!!t.checked;
+ }else if(t.dataset.postprocess){
+  if(t.dataset.postprocess==='mode')saveSharedAnalysisSetting('postprocessMode',t.value);
+  else if(t.dataset.postprocess==='connection')saveSharedAnalysisSetting('postprocessConnection',t.value);
+  else return;
+ }else if(t.hasAttribute('data-postprocess-scope')){
+  const scope=t.dataset.postprocessScope;
+  if(!POSTPROCESS_SCOPES.includes(scope))return;
+  const previous=postprocessSettings().scopes;
+  saveSharedAnalysisSetting('postprocessScopes',t.checked?[...new Set([...previous,scope])]:previous.filter(x=>x!==scope));
  }else if(t.hasAttribute('data-connection')){
   saveSharedAnalysisSetting('analysisConnection',t.value);
  }else if(t.dataset.custom){
@@ -842,7 +952,7 @@ async function handlePanelChange(e){
  }else if(t.dataset.rate){m.config.rate[t.dataset.rate]=clamp(Number(t.value)/100,0,1);
  }else if(t.dataset.probability){const key=t.dataset.probability;if(!['oralContraceptiveEffectiveness','emergencyContraceptiveReduction','longSuppressantSuccess','sideEffectScale'].includes(key))return;const n=Number(t.value),max=key==='sideEffectScale'?300:100;if(!Number.isFinite(n)||n<0||n>max)return setStatus(`확률 설정 범위: 0~${max}%`);m.config[key]=n/100;
  }else return;
- const saved=(t.hasAttribute('data-connection')||t.dataset.custom)?true:await persist();refresh();
+ const saved=(t.hasAttribute('data-connection')||t.dataset.custom||t.dataset.postprocess||t.hasAttribute('data-postprocess-scope'))?true:await persist();refresh();
  if(t.dataset.person)setStatus(saved?`${t.dataset.person.toUpperCase()} ${t.dataset.field==='secondary'?'ABO':'설정'} 변경 자동 저장 완료`:'채팅 설정 저장 실패 · 콘솔 확인');
 }
 async function addManualEvents(events){
@@ -912,6 +1022,18 @@ async function handlePanelClick(e){
   }
   setStatus('각인 사건 저장 완료');return;
  }
+ if(act==='resetPostprocessCache'){
+  if(postprocessBusy||working)return setStatus('진행 중인 후처리가 끝난 뒤 초기화하세요.');
+  const m=meta();if(!m)return;
+  if(!window.confirm('이 채팅의 한국어 후처리 번역 캐시를 초기화할까요? 원본 사건·취향·장면은 유지되며, 다시 번역하면 API 비용이 발생할 수 있습니다.'))return;
+  const backup=m.displayPostprocessCache||{};
+  m.displayPostprocessCache={};
+  if(!await persist()){m.displayPostprocessCache=backup;return setStatus('번역 캐시 초기화 저장 실패');}
+  for(const key of [...autoPostprocessFailures])if(key.startsWith(`${S().chatId}:`))autoPostprocessFailures.delete(key);
+  refresh();setStatus('현재 채팅의 후처리 번역 캐시 초기화 완료');return;
+ }
+ if(act==='cancelPostprocess'){postprocessCancel=true;setStatus('진행 중인 요청이 완료된 뒤 후처리를 중단합니다. 원본 데이터는 변경되지 않습니다.');return;}
+ if(act==='postprocessExisting'){await runDisplayPostprocess();return;}
  if(act==='translatePreferences'){
   const m=meta();if(!m||!state||working)return;
   const sourceChat=S().chatId,sourcePersona=m.userPersonaIdentity,sourceNpc=selectedNpcId(m);

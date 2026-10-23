@@ -1,6 +1,6 @@
 /** Shared analysis connection settings; all world and character state remains chat-local. */
 export const SHARED_ANALYSIS_SETTINGS_KEY='abo_pixel_tracker_analysis';
-export const SHARED_ANALYSIS_FIELDS=Object.freeze(['analysisConnection','customApiUrl','customModel','setupMaxTokens']);
+export const SHARED_ANALYSIS_FIELDS=Object.freeze(['analysisConnection','customApiUrl','customModel','setupMaxTokens','postprocessMode','postprocessConnection','postprocessScopes']);
 export function ensureSharedAnalysisSettings(extensionStore,legacyConfig={},defaults={}){
  if(!extensionStore||typeof extensionStore!=='object')throw new Error('확장 설정 저장소가 없습니다');
  let shared=extensionStore[SHARED_ANALYSIS_SETTINGS_KEY];
