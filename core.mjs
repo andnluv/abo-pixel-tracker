@@ -337,6 +337,7 @@ function updateWindow(state,gestator,ovulation){
 }
 function applyPreference(p,e){
  const id=String(e.preference||'').slice(0,80);if(!id)return;
+ const label=(typeof e.label==='string'&&/[가-힣]/u.test(e.label))?e.label.trim().slice(0,80):'';
  const levels=['latent','liked','strongly_liked','disliked','restricted'];
  if(!levels.includes(e.level))return;
  const all=[...p.preferences.confirmed,...p.preferences.latent];
@@ -344,19 +345,19 @@ function applyPreference(p,e){
  if(old?.locked)return;
  if(e.level==='latent'){
   if(old)return;
-  if(p.preferences.latent.length<5)p.preferences.latent.push({id,level:e.level,source:e.source||'event',evidence:[e.id]});
+  if(p.preferences.latent.length<5)p.preferences.latent.push({id,...(label?{label}:{}),level:e.level,source:e.source||'event',evidence:[e.id]});
   return;
  }
  const direct=e.direct===true;
  const evidences=[...new Set([...(old?.evidence||[]),e.sceneId||e.id])];
  if(!direct&&evidences.length<2){
-  if(!old&&p.preferences.latent.length<5)p.preferences.latent.push({id,level:'latent',source:'observed',evidence:evidences});
-  else if(old)old.evidence=evidences;
+  if(!old&&p.preferences.latent.length<5)p.preferences.latent.push({id,...(label?{label}:{}),level:'latent',source:'observed',evidence:evidences});
+  else if(old){old.evidence=evidences;if(label)old.label=label;}
   return;
  }
  p.preferences.latent=p.preferences.latent.filter(x=>x.id!==id);
  p.preferences.confirmed=p.preferences.confirmed.filter(x=>x.id!==id);
- p.preferences.confirmed.push({id,level:e.level,source:e.source||'event',evidence:evidences});
+ p.preferences.confirmed.push({id,...(label?{label}:{...(old?.label?{label:old.label}:{})}),level:e.level,source:e.source||'event',evidence:evidences});
 }
 export function applyEvent(state,input){
  const e=normEvent(input),p=state.people[e.person];

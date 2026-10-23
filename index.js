@@ -17,6 +17,7 @@ import {extension_settings} from '/scripts/extensions.js';
 import {ensureSharedAnalysisSettings,setSharedAnalysisSetting} from './global-analysis-settings.mjs';
 import {mountExtensionLaunchers} from './menu-launcher.mjs';
 import {extractDrugClassesFromWorldInfo} from './worldinfo-drug-catalog.mjs';
+import {PREFERENCE_LOCALIZATION_SYSTEM,localizationItems,localizationPrompt,parseLocalizationOutput} from './preference-localization.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
@@ -464,7 +465,7 @@ const PROPOSAL_SELECT={
  sex:[['male','남성'],['female','여성'],['nonbinary','기타']],
  secondary:[['alpha','알파'],['beta','베타'],['omega','오메가']],
 };
-const LEVELS=[['latent','잠재적 관심'],['liked','선호'],['strongly_liked','강한 선호'],['disliked','비선호'],['restricted','제한']];
+const LEVELS=[['latent','잠재적 관심'],['liked','선호'],['strongly_liked','강한 선호'],['disliked','비선호'],['restricted','경계']];
 const choiceHTML=(arr,chosen)=>arr.map(([v,label])=>`<option value="${html(v)}" ${String(chosen)===String(v)?'selected':''}>${html(label)}</option>`).join('');
 function renderSetup(){
  const m=meta(false);if(!m)return '';
@@ -495,9 +496,9 @@ function renderSetup(){
   out+=`</div><h3 class="abop-setup-subtitle">친밀 성향·취향 후보 <span>잠재 후보 3~5개 · 확정 후보 별도</span></h3>`;
   for(const [kind,list] of [['confirmed',d.confirmed],['latent',d.latent]]){
    for(const [i,pref] of list.entries()){
-    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-pref-check="${role}" data-kind="${kind}" data-i="${i}" ${pref.checked?'checked':''}/><span class="abop-sr-only">${html(preferenceDisplayLabel(pref))} 적용</span></label>
+    out+=`<div class="abop-proposal-row"><label class="abop-check abop-proposal-check"><input type="checkbox" data-pref-check="${role}" data-kind="${kind}" data-i="${i}" ${pref.checked?'checked':''}/><span class="abop-sr-only">${html(preferenceDisplayLabel(pref,m.preferenceTranslations||{}))} 적용</span></label>
      <div class="abop-proposal-content"><div class="abop-rowhead"><b>${kind==='confirmed'?'카드 확정':pref.source==='optional'?'선택 후보':'잠재 취향'}</b><span class="abop-basis ${kind==='confirmed'?'explicit':'suggested'}">${kind==='confirmed'?'확정 제안':pref.source==='optional'?'선택 후보':pref.source==='custom'?'직접 추가':'잠재 제안'}</span></div>
-     <input data-pref-id="${role}" data-kind="${kind}" data-i="${i}" type="text" value="${html(preferenceDisplayLabel(pref))}" title="원본 ID: ${html(pref.id)}" aria-label="취향 이름" />
+     <input data-pref-id="${role}" data-kind="${kind}" data-i="${i}" type="text" value="${html(preferenceDisplayLabel(pref,m.preferenceTranslations||{}))}" title="원본 ID: ${html(pref.id)}" aria-label="취향 이름" />
      ${kind==='confirmed'?`<select data-pref-level="${role}" data-i="${i}">${choiceHTML(LEVELS.filter(x=>x[0]!=='latent'),pref.level)}</select>`:''}
      <small>${html(pref.reason||'캐릭터의 성격·설정 기반 제안')}</small></div></div>`;
    }
@@ -660,7 +661,7 @@ function selectedSection(){
  <button data-action="recordMedication" data-role="${id}">확인된 복용 기록</button></div>
  <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
  if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(pregnancyLabel(p.pregnancy.status))}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`${Math.floor(p.pregnancy.dueAt/24)}일 차 · ${fmt(p.pregnancy.dueAt%24)}시간`}</p><p>결합: ${html((p.bondPartners||[]).map(pid=>state.people[pid]?.name||pid).join(', ')||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(state.people[w.gestator]?.name||personRoleLabel(w.gestator))} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p><h4 class="abop-minihead">확정·관찰된 취향</h4>${p.preferences.confirmed.map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">기록 없음</p>'}<h4 class="abop-minihead">잠재적 관심 및 후보</h4>${p.preferences.latent.map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">후보 없음</p>'}</section>`).join('')}</div>`;
+ if(tab==='preferences')return `<section class="abop-frame"><div class="abop-actions"><button data-action="translatePreferences" ${working?'disabled':''}>AI로 한국어 표시명 정리</button></div><p class="abop-muted">알 수 없는 영어 코드와 어색한 한국어 표현을 한 번에 정리합니다. 별도 AI 호출이 발생하며 추가 API 비용이 들 수 있습니다. 취향 종류·선호도·원본 ID는 변경하지 않습니다.</p><p class="abop-muted">[경계]: 해당 인물이 조심스럽게 접근하거나 경계를 두는 요소. 금지나 비선호와는 별도 분류입니다.</p></section><div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p><h4 class="abop-minihead">확정·관찰된 취향</h4>${p.preferences.confirmed.map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x,m.preferenceTranslations||{}))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">기록 없음</p>'}<h4 class="abop-minihead">잠재적 관심 및 후보</h4>${p.preferences.latent.map(x=>`<div class="abop-line">${html(preferenceDisplayLabel(x,m.preferenceTranslations||{}))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">후보 없음</p>'}</section>`).join('')}</div>`;
  if(tab==='scenes')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 현재 장면</header><div class="abop-title">${html(p.name)}</div>${p.scene?.verified===false?'<p class="abop-muted">최신 서술에서 현재 장면이 확인되지 않았습니다.</p>':sceneHasDetails(p.scene)?`<div class="abop-scene-details">${sceneDetailRows(p.scene)}</div>`:'<p class="abop-muted">확인된 자세·접촉 정보가 없습니다.</p>'}<hr/><p class="abop-muted">완료된 장면: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>완료된 장면 기록 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line"><small>${i+1}.</small> ${html(sceneRecordSummary(scene))}</div>`).join('')}</details>`:'<p class="abop-muted">완료된 장면 없음</p>'}</section>`).join('')}</div>`;
  const shared=sharedAnalysisSettings();
  return `<section class="abop-frame"><header>◈ 설정</header>
@@ -737,7 +738,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.37</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.38</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['scenes','장면','▣'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','scenes':'장면','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;
@@ -816,9 +817,9 @@ async function handlePanelChange(e){
  }else if(t.dataset.prefId){
   const pref=m.initialProposal?.roles?.[t.dataset.prefId]?.[t.dataset.kind]?.[Number(t.dataset.i)];
   if(pref){
-   const original=pref.id, shown=preferenceDisplayLabel(pref), edited=String(t.value||'').trim();
-   pref.id=preferenceIdFromEdit(edited,original,pref.label);
-   if(edited!==shown)pref.label=/[가-힣]/u.test(edited)?edited:'';
+   const original=pref.id, shown=preferenceDisplayLabel(pref,m.preferenceTranslations||{}), edited=String(t.value||'').trim();
+   pref.id=edited===shown?original:preferenceIdFromEdit(edited,original,pref.label);
+   if(edited!==shown){pref.label=/[가-힣]/u.test(edited)?edited:'';if(m.preferenceTranslations)delete m.preferenceTranslations[original];}
   }
  }else if(t.dataset.prefLevel){const pref=m.initialProposal?.roles?.[t.dataset.prefLevel]?.confirmed?.[Number(t.dataset.i)];if(pref&&LEVELS.some(x=>x[0]===t.value))pref.level=t.value;
  }else if(t.dataset.prefAttitude){const d=m.initialProposal?.roles?.[t.dataset.prefAttitude];if(d)d.attitude=t.value;
@@ -910,6 +911,29 @@ async function handlePanelClick(e){
    await addManualEvents([{kind:'bond_loss',person:actor,partner:target,cause}]);
   }
   setStatus('각인 사건 저장 완료');return;
+ }
+ if(act==='translatePreferences'){
+  const m=meta();if(!m||!state||working)return;
+  const sourceChat=S().chatId,sourcePersona=m.userPersonaIdentity,sourceNpc=selectedNpcId(m);
+  const prefs=Object.values(state.people).flatMap(p=>[...(p.preferences?.confirmed||[]),...(p.preferences?.latent||[])]);
+  const items=localizationItems(prefs,m.preferenceTranslations||{});
+  if(!items.length)return setStatus('정리할 취향 항목이 없습니다');
+  working=true;setStatus(`한국어 표시명 정리 중 · ${items.length}개 항목`);render();
+  try{
+   const translated={};
+   for(let i=0;i<items.length;i+=30){
+    const chunk=items.slice(i,i+30);
+    setStatus(`한국어 표시명 정리 중 · ${Math.min(i+chunk.length,items.length)}/${items.length}개`);
+    const raw=await analysisRequest(PREFERENCE_LOCALIZATION_SYSTEM,localizationPrompt(chunk),Math.max(900,chunk.length*55));
+    Object.assign(translated,parseLocalizationOutput(raw,chunk));
+   }
+   if(S().chatId!==sourceChat||meta(false)!==m||m.userPersonaIdentity!==sourcePersona||selectedNpcId(m)!==sourceNpc){setStatus('채팅·페르소나가 변경되어 번역 결과를 적용하지 않았습니다');return;}
+   if(!Object.keys(translated).length)throw new Error('검증을 통과한 한국어 표시명이 없습니다');
+   m.preferenceTranslations={...(m.preferenceTranslations||{}),...translated};
+   await persist();setStatus(`한국어 표시명 ${Object.keys(translated).length}개 정리 완료 · 원본 취향/등급 유지`);
+  }catch(err){setStatus(`표시명 정리 실패: ${err.message||'모델 연결을 확인하세요'}`);}
+  finally{working=false;refresh();}
+  return;
  }
  if(act==='openSetup'){tab='setup';render();return;}
  if(act==='saveABO'){

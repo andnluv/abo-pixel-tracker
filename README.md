@@ -1,3 +1,9 @@
+## v0.3.38 localization update
+- The visible preference tier `restricted` is now Korean `경계` (boundary/caution). Stored IDs and tier logic are unchanged.
+- New analyzer preference events carry an optional natural Korean `label`; it survives replay.
+- Unknown IDs have a safe UI fallback. An explicit **취향 → AI로 한국어 표시명 정리** action can semantically localize and polish existing entries with an extra model call; the result is stored as a display-only mapping.
+- The bundled World Info drug reference displays the seven requested Korean descriptions. The other World Info class remains separately listed, without removing its mechanics.
+
 ## v0.3.37 — Opt-in historical state reanalysis
 
 - **Status → Story clock & events → 기존 채팅 상태 재분석** scans earlier RP messages chronologically via the configured AI analysis connection. Each message may require a paid API call.
