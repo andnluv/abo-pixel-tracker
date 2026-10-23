@@ -19,6 +19,7 @@ import {mountExtensionLaunchers} from './menu-launcher.mjs';
 import {extractDrugClassesFromWorldInfo} from './worldinfo-drug-catalog.mjs';
 import {PREFERENCE_LOCALIZATION_SYSTEM,localizationItems,localizationPrompt,parseLocalizationOutput} from './preference-localization.mjs';
 import {POSTPROCESS_SCOPES,DEFAULT_POSTPROCESS,normalizedPostprocessSettings,displayCacheText,collectDisplayCandidates,choosePostprocessCandidates,postprocessKey,ruleDisplayText,batchPostprocess,postprocessPrompt,parsePostprocessReply,DISPLAY_POSTPROCESS_SYSTEM} from './display-postprocess.mjs';
+import {sceneHasDetails,hasUsableScene,hasSceneHistory} from './scene-visibility.mjs';
 const STORAGE='abo_pixel_tracker_independent_v1';
 const PROMPT='ABO_PIXEL_TRACKER_CONTINUITY_V1';
 const S=()=>SillyTavern.getContext();
@@ -720,13 +721,29 @@ function renderTimeSyncPreview(m){
  <div class="abop-actions"><button data-action="applyTimeSync" ${items.length?'':'disabled'}>선택 항목 적용</button><button data-action="cancelTimeSync">취소</button></div>
  <p class="abop-muted">기존 수동/자동 사건은 유지합니다. 동일 시간의 기존 사건이 존재하면 중복 계산될 수 있으니 적용 전 확인하세요.</p></section>${note}`;
 }
-function sceneHasDetails(scene){
- return !!scene && ['posture','contact','vocal','speech'].some(k=>typeof scene[k]==='string'&&scene[k].trim()) || (Array.isArray(scene?.play)&&scene.play.length>0);
-}
 function sceneDetailRows(scene,role){
  const fields=[['자세','posture',scene.posture],['접촉','contact',scene.contact],['발성','vocal',scene.vocal],['대화·발화','speech',scene.speech]];
  if(Array.isArray(scene.play)&&scene.play.length)for(const raw of scene.play)fields.push(['기타 활동','play',raw]);
  return fields.filter(([,field,value])=>String(value??'').trim()).map(([name,field,value])=>`<div class="abop-line"><span class="abop-scene-key">${name}</span><span>${html(localizedScene('scene',role,field,value))}</span></div>`).join('');
+}
+// CHAR is the primary scene view. USER scenes are shown only when they have
+// independently supported current details or stored completed scenes.
+function renderSceneHistory(person,role){
+ const recent=Array.isArray(person?.recentScenes)?person.recentScenes:[];
+ return `<hr/><p class="abop-muted">완료된 장면: ${recent.length}건 (최근 최대 3건 보관)</p>${recent.length?`<details class="abop-scene-history"><summary>완료된 장면 기록 보기</summary>${recent.slice().reverse().map((scene,i)=>`<div class="abop-line"><small>${i+1}.</small> ${html(localizedSceneSummary(scene,role))}</div>`).join('')}</details>`:'<p class="abop-muted">완료된 장면 없음</p>'}`;
+}
+function renderCurrentScene(person,role){
+ if(person?.scene?.verified===false)return '<p class="abop-muted">최신 서술에서 현재 장면이 확인되지 않았습니다.</p>';
+ return hasUsableScene(person)?`<div class="abop-scene-details">${sceneDetailRows(person.scene,role)}</div>`:'<p class="abop-muted">확인된 자세·접촉 정보가 없습니다.</p>';
+}
+function renderSceneTab(people){
+ const char=people.find(([id])=>id==='char')?.[1];
+ const user=people.find(([id])=>id==='user')?.[1];
+ const primary=char?`<section class="abop-frame abop-scene-primary"><header>CHAR · 현재 장면</header><div class="abop-title">${html(char.name)}</div>${renderCurrentScene(char,'char')}${renderSceneHistory(char,'char')}</section>`:'';
+ // Avoid an equally-sized empty USER card. Do not invent USER scene evidence
+ // from the assistant's narration; the event parser protects USER agency.
+ const supplemental=user&&(hasUsableScene(user)||hasSceneHistory(user))?`<details class="abop-frame abop-scene-user"><summary>USER · ${html(user.name)} · 장면 기록 보기</summary>${hasUsableScene(user)?`<div class="abop-scene-details">${sceneDetailRows(user.scene,'user')}</div>`:''}${renderSceneHistory(user,'user')}</details>`:'';
+ return `<div class="abop-scenes-char-first">${primary}${supplemental}</div>`;
 }
 function selectedSection(){
  const m=meta(false);if(!state||!m)return `<p class="abop-muted">채팅을 연 뒤 사용할 수 있습니다.</p>`;
@@ -754,8 +771,8 @@ function selectedSection(){
  <button data-action="recordMedication" data-role="${id}">확인된 복용 기록</button></div>
  <p class="abop-muted">실제로 복용한 것으로 확인된 사건만 기록하세요. 자동 분석에서 이미 기록한 복용은 중복 입력하지 마세요. 발생 확률과 증상은 가상의 세계관 규칙에 따라 결정됩니다.</p></details></section>`).join('')}</div>`;
  if(tab==='fertility')return `${m.config.pregnancyEnabled===false?'<section class="abop-frame"><header>임신 기능 OFF</header><p>임신 판정 및 RP 주입이 비활성화되어 있습니다. 기록은 삭제되지 않으며 다시 켜면 기존 사건도 재계산됩니다.</p></section>':''}<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 실제 신체 상태</header><div class="abop-title">${html(p.name)}</div><p>임신 상태: <b>${m.config.hideTruth?'●●●● (스포일러 숨김)':html(pregnancyLabel(p.pregnancy.status))}</b></p><p>인지 상태: ${html(pregnancyLabel(p.awareness.pregnancy))}</p><p>출산 예정: ${p.pregnancy.dueAt===null?'—':`${Math.floor(p.pregnancy.dueAt/24)}일 차 · ${fmt(p.pregnancy.dueAt%24)}시간`}</p><p>결합: ${html((p.bondPartners||[]).map(pid=>state.people[pid]?.name||pid).join(', ')||'없음')}</p></section>`).join('')}</div><section class="abop-frame"><header>◈ 가임·임신 가능성 기록</header>${Object.values(state.windows).map(w=>`<div class="abop-line">${html(state.people[w.gestator]?.name||personRoleLabel(w.gestator))} · 노출 ${w.exposures.length}건 · 누적 ${(w.total*100).toFixed(1)}% · ${m.config.hideTruth?'결과 숨김':`고정 난수 ${w.roll.toFixed(4)}`}</div>`).join('')||'<p>판정 기록 없음</p>'}<button data-action="exposure" ${m.config.pregnancyEnabled===false?'disabled title="임신 기능이 꺼져 있습니다"':''}>임신 가능 사건 수동 기록</button></section>`;
- if(tab==='preferences')return `<section class="abop-frame"><div class="abop-actions"><button data-action="translatePreferences" ${working?'disabled':''}>AI로 한국어 표시명 정리</button></div><p class="abop-muted">알 수 없는 영어 코드와 어색한 한국어 표현을 한 번에 정리합니다. 별도 AI 호출이 발생하며 추가 API 비용이 들 수 있습니다. 취향 종류·선호도·원본 ID는 변경하지 않습니다.</p><p class="abop-muted">[경계]: 해당 인물이 조심스럽게 접근하거나 경계를 두는 요소. 금지나 비선호와는 별도 분류입니다.</p></section><div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p><h4 class="abop-minihead">확정·관찰된 취향</h4>${p.preferences.confirmed.map(x=>`<div class="abop-line">${html(localizedPreference(x,m,id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">기록 없음</p>'}<h4 class="abop-minihead">잠재적 관심 및 후보</h4>${p.preferences.latent.map(x=>`<div class="abop-line">${html(localizedPreference(x,m,id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">후보 없음</p>'}</section>`).join('')}</div>`;
- if(tab==='scenes')return `<div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 현재 장면</header><div class="abop-title">${html(p.name)}</div>${p.scene?.verified===false?'<p class="abop-muted">최신 서술에서 현재 장면이 확인되지 않았습니다.</p>':sceneHasDetails(p.scene)?`<div class="abop-scene-details">${sceneDetailRows(p.scene,id)}</div>`:'<p class="abop-muted">확인된 자세·접촉 정보가 없습니다.</p>'}<hr/><p class="abop-muted">완료된 장면: ${p.recentScenes.length}건 (최근 최대 3건 보관)</p>${p.recentScenes.length?`<details class="abop-scene-history"><summary>완료된 장면 기록 보기</summary>${p.recentScenes.slice().reverse().map((scene,i)=>`<div class="abop-line"><small>${i+1}.</small> ${html(localizedSceneSummary(scene,id))}</div>`).join('')}</details>`:'<p class="abop-muted">완료된 장면 없음</p>'}</section>`).join('')}</div>`;
+ if(tab==='preferences')return `<section class="abop-frame"><div class="abop-actions"><button data-action="translatePreferences" ${working?'disabled':''}>AI로 한국어 표시명 정리</button></div><p class="abop-muted">알 수 없는 영어 코드와 어색한 한국어 표현을 한 번에 정리합니다. 별도 AI 호출이 발생하며 추가 API 비용이 들 수 있습니다. </p><p class="abop-muted">[경계]: 해당 인물이 조심스럽게 접근하거나 경계를 두는 요소. 금지나 비선호와는 별도 분류입니다.</p></section><div class="abop-people">${people.map(([id,p])=>`<section class="abop-frame"><header>${id.toUpperCase()} · 취향</header><div class="abop-title">${html(p.name)}</div><p class="abop-muted">성향: ${html(attitudeLabel(p.preferences.attitude))}</p><h4 class="abop-minihead">확정·관찰된 취향</h4>${p.preferences.confirmed.map(x=>`<div class="abop-line">${html(localizedPreference(x,m,id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">기록 없음</p>'}<h4 class="abop-minihead">잠재적 관심 및 후보</h4>${p.preferences.latent.map(x=>`<div class="abop-line">${html(localizedPreference(x,m,id))} <small>[${html(preferenceLevelLabel(x.level))}]</small></div>`).join('')||'<p class="abop-muted">후보 없음</p>'}</section>`).join('')}</div>`;
+ if(tab==='scenes')return renderSceneTab(people);
  const shared=sharedAnalysisSettings();
  return `<section class="abop-frame"><header>◈ 설정</header>
   <div class="abop-title">디자인 설정</div>
@@ -764,7 +781,7 @@ function selectedSection(){
   <div class="abop-title">분석 모델 연결</div>
   <label class="abop-fieldlabel">분석에 사용할 API / 저장 연결 프로필
   <select id="abop-connection" data-connection>${connectionOptions(shared)}</select></label>
-  <p class="abop-muted">선택하지 않으면 현재 SillyTavern 연결을 사용합니다. 저장된 프로필은 메인 RP 연결을 전환하지 않고 공식 프로필 요청 서비스로 별도 호출합니다. 연결 테스트에서 인증 오류가 나면 연결 관리자에서 그 프로필을 활성화한 상태로 업데이트하세요.</p>
+  <p class="abop-muted">선택하지 않으면 현재 SillyTavern 연결을 사용합니다. 연결 테스트에서 인증 오류가 나면 연결 관리자에서 그 프로필을 활성화한 상태로 업데이트하세요.</p>
   ${connectionValue(shared)==='custom'?`<div class="abop-api-fields">
     <label class="abop-fieldlabel">OpenAI 호환 API 주소<input type="url" data-custom="customApiUrl" value="${html(shared.customApiUrl||'')}" placeholder="https://api.example.com/v1" /></label>
     <label class="abop-fieldlabel">모델 이름<input type="text" data-custom="customModel" value="${html(shared.customModel||'')}" placeholder="model-id" /></label>
@@ -839,7 +856,7 @@ function render(){
  const m=meta(false);
  const theme=m?.config?.uiTheme||'auto';
  root.dataset.theme=theme==='light'||theme==='dark'?theme:(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches?'dark':'light');
- root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.39</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
+ root.innerHTML=`<div class="abop-window"><div class="abop-top"><span class="abop-brandmark" aria-hidden="true"></span><strong>그날의 사정 <small>ABO TRACKER</small></strong><span class="abop-version">v0.3.40</span><button title="테마 전환" aria-label="테마 전환" data-action="themeCycle" class="abop-theme-button">◐</button><button title="닫기" aria-label="닫기" data-action="close">✕</button></div>
  <div class="abop-shell"><nav class="abop-nav">${[['status','상태','▦'],['setup','초기 설정','◈'],['cycles','주기','◷'],['fertility','임신','✦'],['preferences','취향','♥'],['scenes','장면','▣'],['settings','설정','⚙']].map(([id,label,icon])=>`<button data-tab="${id}" class="${tab===id?'selected':''}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>
  <main class="abop-main"><div class="abop-subhead"><span>◈ ${({'status':'상태','setup':'초기 설정','cycles':'주기','fertility':'임신','preferences':'취향','scenes':'장면','settings':'설정'}[tab]||tab.toUpperCase())} / ${html(S()?.chatId?'현재 채팅':'채팅 없음')}</span><span class="abop-dot">● ${working?'분석 중':'준비됨'}</span></div>${selectedSection()}</main></div><footer class="abop-statusbar" id="abop-statusline" role="status" aria-live="polite">${html(status)}</footer></div>`;
  const scrollArea=root.querySelector('.abop-main');if(scrollArea)scrollArea.scrollTop=previousScroll;

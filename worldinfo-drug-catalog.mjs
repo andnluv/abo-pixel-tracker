@@ -13,7 +13,7 @@ const GROUPS = Object.freeze([
     {needle:/\b(?:genuine cycle-triggering|cycle-type)\b/i, title:'주기 유도제', description:'히트·러트 주기를 실제로 유발하거나 주기 시점을 변경할 수 있음.'},
   ]},
   {key:'MED-02', title:'그 외 월드 인포 약물', definitions:[
-    {needle:/\bunlicensed mixed compound\b/i, title:'비승인 혼합약물', description:'세계관에 따라 억제·유도·주기 불안정 등 여러 작용을 나타낼 수 있음.'},
+    {needle:/\bunlicensed mixed compound\b/i, title:'비승인 혼합약물', description:'설정·목적에 따라 억제·유도·주기 불안정 등 여러 작용을 나타낼 수 있음.'},
   ]},
   {key:'FERT-03', title:'피임', definitions:[
     {needle:/\bemergency contraception is available\b/i, title:'응급 피임제', description:'피임 없는 성교 후, 임신 가능 사건의 위험도를 낮춤.'},

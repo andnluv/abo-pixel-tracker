@@ -230,3 +230,10 @@
 #abop-panel .abop-drug-reference .abop-drug-line{padding:6px 0;border-bottom:1px dotted var(--ab-soft-line)}
 #abop-panel .abop-drug-reference .abop-drug-line b{font-size:13px;color:var(--ab-text)}
 #abop-panel .abop-drug-reference .abop-drug-line p{font-size:12px;margin:3px 0 0;color:var(--ab-muted)}
+
+/* v0.3.40: CHAR-first scene tab. No empty USER second column. */
+#abop-panel .abop-scenes-char-first{display:block;width:100%;min-width:0}
+#abop-panel .abop-scenes-char-first .abop-scene-primary{width:100%;max-width:none}
+#abop-panel .abop-scenes-char-first .abop-scene-user{width:100%;max-width:none}
+#abop-panel .abop-scenes-char-first .abop-scene-user>summary{font-size:13px;font-weight:700;color:var(--ab-lilac);padding:3px 0}
+#abop-panel .abop-scenes-char-first .abop-scene-user[open]>summary{margin-bottom:14px;border-bottom:1px solid var(--ab-soft-line);padding-bottom:10px}

@@ -1,3 +1,7 @@
+## v0.3.40 · CHAR-first scene tab
+
+The scene tab prioritizes CHAR at full width. A collapsed USER section appears only when independently verified USER scene data or completed history exists. Empty USER cards are hidden; tracking and stored data remain unchanged.
+
 ## v0.3.39 — Optional Korean UI postprocessing
 - **Settings → 한국어 표시 후처리** lets users select disabled, rule-only, automatic AI as needed (default), or AI translation & polishing.
 - Choose scopes independently: preferences, current scenes, completed scenes, recent event types, status descriptions.
